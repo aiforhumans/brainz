@@ -42,6 +42,7 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [isModelLoading, setIsModelLoading] = useState(false)
   const abortControllerRef = useRef(null)
+  const currentStreamIdRef = useRef(0)
 
   // Modals
   const [characterModalState, setCharacterModalState] = useState({ isOpen: false, character: null })
@@ -395,11 +396,17 @@ export default function App() {
 
   // Core streaming executor for new messages and regenerations
   const executeStreamingChat = useCallback(async (targetSessionId, assistantMsgId, promptMessages) => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
+
+    const streamId = ++currentStreamIdRef.current
     const endForeground = beginForegroundRequest()
-    setIsStreaming(true)
-    setStreamingStatus({ stage: 'connecting', progress: null, label: 'Connecting to LM Studio...' })
     const controller = new AbortController()
     abortControllerRef.current = controller
+
+    setIsStreaming(true)
+    setStreamingStatus({ stage: 'connecting', progress: null, label: 'Connecting to LM Studio...' })
 
     try {
       await client.streamChat({
@@ -411,9 +418,11 @@ export default function App() {
         brain: activeBrain,
         signal: controller.signal,
         onStatus: (status) => {
+          if (currentStreamIdRef.current !== streamId) return
           setStreamingStatus(status)
         },
         onReasoningChunk: (_delta, fullReasoning) => {
+          if (currentStreamIdRef.current !== streamId) return
           setSessions((prev) => {
             const charSessions = prev[activeCharacter.id] || []
             const targetSession = charSessions.find((s) => s.id === targetSessionId)
@@ -432,6 +441,7 @@ export default function App() {
           })
         },
         onChunk: (_delta, fullText) => {
+          if (currentStreamIdRef.current !== streamId) return
           setSessions((prev) => {
             const charSessions = prev[activeCharacter.id] || []
             const targetSession = charSessions.find((s) => s.id === targetSessionId)
@@ -450,6 +460,7 @@ export default function App() {
           })
         },
         onEnd: ({ stats, responseId, modelInstanceId, fullContent, fullReasoning }) => {
+          if (currentStreamIdRef.current !== streamId) return
           // Persist the cadence per character, including regeneration/continuation replies.
           const current = latestRef.current
           const character = current.characters.find(c => c.id === activeCharacter.id)
@@ -507,6 +518,7 @@ export default function App() {
         },
       })
     } catch (err) {
+      if (currentStreamIdRef.current !== streamId) return
       if (err.name === 'AbortError') {
         console.log('Generation aborted by user')
       } else {
@@ -540,9 +552,11 @@ export default function App() {
         })
       }
     } finally {
-      setIsStreaming(false)
-      setStreamingStatus(null)
-      abortControllerRef.current = null
+      if (currentStreamIdRef.current === streamId) {
+        setIsStreaming(false)
+        setStreamingStatus(null)
+        abortControllerRef.current = null
+      }
       endForeground()
     }
   }, [client, activeCharacter, userPersona, lorebook, settings, activeBrain, beginForegroundRequest, handleSaveBrain])
@@ -628,13 +642,15 @@ export default function App() {
   }
 
   // Stop Generation
-  const handleStopGeneration = () => {
+  const handleStopGeneration = useCallback(() => {
+    currentStreamIdRef.current++
     if (abortControllerRef.current) {
       abortControllerRef.current.abort()
+      abortControllerRef.current = null
     }
     setIsStreaming(false)
     setStreamingStatus(null)
-  }
+  }, [])
 
   // Continue generation
   const handleContinueGeneration = async () => {

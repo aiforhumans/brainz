@@ -59,7 +59,11 @@ export function TokenOverviewBar({
 
     // Chat history in session
     const chatMessageCount = messages.length
-    const chatTokens = messages.reduce((acc, m) => acc + estimateTokens(m.content || ''), 0)
+    const rawChatTokens = messages.reduce((acc, m) => acc + estimateTokens(m.content || '') + (m.image ? 250 : 0) + 4, 0)
+    const chatTokens = promptPipeline?.observability?.historyTokens ?? rawChatTokens
+    const droppedChatCount = promptPipeline?.observability?.droppedHistoryCount ?? 0
+    const isHistoryTruncated = promptPipeline?.observability?.isHistoryTruncated ?? false
+    const fittedHistoryCount = promptPipeline?.observability?.fittedHistoryCount ?? chatMessageCount
 
     // User persona tokens
     const personaTokens = estimateTokens(`${userPersona?.name || ''} ${userPersona?.title || ''} ${userPersona?.bio || ''}`)
@@ -67,11 +71,11 @@ export function TokenOverviewBar({
     // System prompt & Context budgets
     const contextLength = settings.contextLength || 8192
     const maxTokens = settings.maxTokens || 1024
-    const availableContext = Math.max(contextLength - maxTokens, 500)
+    const availableContext = promptPipeline?.observability?.availableContext || Math.max(contextLength - maxTokens - 256, 500)
     const estimatedSystemTokens = promptPipeline?.observability?.estimatedTokens || 0
 
     // Total prompt input tokens (System prompt + conversation history)
-    const totalInputTokens = estimatedSystemTokens + chatTokens
+    const totalInputTokens = promptPipeline?.observability?.totalInputTokens ?? (estimatedSystemTokens + chatTokens)
     const contextPercentage = Math.min(100, Math.round((totalInputTokens / availableContext) * 100))
     const headroomTokens = Math.max(0, availableContext - totalInputTokens)
 
@@ -97,6 +101,10 @@ export function TokenOverviewBar({
       activeLoreTokens,
       chatMessageCount,
       chatTokens,
+      rawChatTokens,
+      droppedChatCount,
+      isHistoryTruncated,
+      fittedHistoryCount,
       contextLength,
       maxTokens,
       availableContext,
@@ -543,11 +551,16 @@ export function TokenOverviewBar({
           {/* Chat History Pill */}
           <div
             className="token-stat-pill"
-            title={`Conversation History\n${stats.chatMessageCount} messages in session\n~${stats.chatTokens} tokens in message history`}
+            title={`Conversation History\n${stats.chatMessageCount} messages in session\n${stats.chatTokens} tokens in active context${stats.droppedChatCount > 0 ? ` (${stats.droppedChatCount} older messages windowed to protect context length)` : ''}`}
           >
             <MessageSquare size={13} className="token-pill-icon pill-icon-blue" />
             <span className="token-pill-label">Chat:</span>
             <span className="token-pill-value">{stats.chatTokens} tok</span>
+            {stats.droppedChatCount > 0 && (
+              <span className="token-pill-badge active" title={`${stats.droppedChatCount} older messages windowed out of context`}>
+                {stats.fittedHistoryCount}/{stats.chatMessageCount}
+              </span>
+            )}
           </div>
         </div>
 

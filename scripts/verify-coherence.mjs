@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { LMStudioClient } from '../src/services/lmStudioClient.js'
-import { isAutoLearnDue, createBrain, normalizeBrain, reconcileBrain, sessionFingerprint, sessionChunks, selectMemories, applyLearningResult, validateLearningResult } from '../src/services/brainService.js'
+import { isAutoLearnDue, createBrain, normalizeBrain, reconcileBrain, sessionFingerprint, sessionChunks, selectMemories, applyLearningResult, validateLearningResult, eligibleMessages } from '../src/services/brainService.js'
 import { buildChatPrompt, buildBrainPrompt, buildCompiledPromptPipeline, createCharacterTemplate, authoredFields, replaceMacros, resolveCharacterMacros } from '../src/services/promptService.js'
 import { storageService, generateContextualBrain } from '../src/services/storageService.js'
 import { DEFAULT_CHARACTERS, migrateDefaultCharacter } from '../src/services/defaultCharacters.js'
@@ -472,6 +472,85 @@ await check('AC12, AC15 & AC16: Observability, fail-safe isolation, and post-tur
   // Fail-safe: ensure MemoryConflictEngine handles malformed memories
   const safeConf = MemoryConflictEngine.findContradictions(null, [null, undefined, {}])
   assert.deepEqual(safeConf, [])
+})
+
+await check('session persistence preserves complete, failed, and control flags across save and load', () => {
+  const store = new Map()
+  globalThis.localStorage = {
+    getItem: k => store.get(k) ?? null,
+    setItem: (k, v) => store.set(k, v),
+    removeItem: k => store.delete(k),
+  }
+
+  const rawSessions = {
+    alex: [
+      {
+        id: 's-test',
+        title: 'Session with errors and controls',
+        messages: [
+          { id: 'm1', role: 'assistant', content: 'Incomplete output...', complete: false },
+          { id: 'm2', role: 'assistant', content: '*[Error: connection lost]*', failed: true, complete: false },
+          { id: 'm3', role: 'user', content: '*Continue your narrative*', control: true },
+          { id: 'm4', role: 'user', content: 'Sam planted a cedar tree.', complete: true },
+        ],
+      },
+    ],
+  }
+
+  storageService.saveSessions(rawSessions)
+  const loaded = storageService.getSessions()
+  const alexMsgs = loaded.alex[0].messages
+
+  assert.equal(alexMsgs[0].complete, false)
+  assert.equal(alexMsgs[1].failed, true)
+  assert.equal(alexMsgs[1].complete, false)
+  assert.equal(alexMsgs[2].control, true)
+  assert.equal(alexMsgs[3].complete, true)
+
+  // Verify that eligibleMessages ignores incomplete, failed, and control messages after storage round-trip
+  const valid = eligibleMessages(loaded.alex[0])
+  assert.equal(valid.length, 1)
+  assert.equal(valid[0].id, 'm4')
+  assert.equal(valid[0].content, 'Sam planted a cedar tree.')
+})
+
+await check('TokenBudgetManager.fitHistory windows conversation messages within budget and protects latest turn', () => {
+  const budget = new TokenBudgetManager({ contextLength: 4096, maxTokens: 1024, safetyMargin: 256 })
+  const msgs = Array.from({ length: 10 }, (_, i) => ({
+    id: `m-${i}`,
+    role: i % 2 === 0 ? 'user' : 'assistant',
+    content: `Turn number ${i}: ` + 'word '.repeat(50),
+  }))
+
+  const result = budget.fitHistory(msgs, 300)
+  assert.ok(result.fittedMessages.length < 10)
+  assert.ok(result.droppedTurnsCount > 0)
+  assert.equal(result.isTruncated, true)
+  assert.ok(result.historyTokens <= 300 || result.fittedMessages.length === 1)
+  // Ensure the latest message (m-9) is included
+  assert.equal(result.fittedMessages[result.fittedMessages.length - 1].id, 'm-9')
+})
+
+await check('buildCompiledPromptPipeline coordinates history budgeting and bounds total input within context limit', () => {
+  const longHistory = Array.from({ length: 40 }, (_, i) => ({
+    id: `turn-${i}`,
+    role: i % 2 === 0 ? 'user' : 'assistant',
+    content: `Message ${i} containing detailed conversation text that consumes significant context. `.repeat(15),
+  }))
+
+  const pipeline = buildCompiledPromptPipeline({
+    character,
+    persona,
+    history: longHistory,
+    settings: { contextLength: 4096, maxTokens: 1024 },
+  })
+
+  assert.ok(pipeline.fittedHistory.length < longHistory.length)
+  assert.equal(pipeline.observability.isHistoryTruncated, true)
+  assert.ok(pipeline.observability.totalInputTokens <= pipeline.observability.availableContext)
+  assert.ok(pipeline.fittedHistory.length > 0)
+  // Latest message preserved
+  assert.equal(pipeline.fittedHistory[pipeline.fittedHistory.length - 1].id, 'turn-39')
 })
 
 console.log(`\n${passed} coherence checks passed.`)

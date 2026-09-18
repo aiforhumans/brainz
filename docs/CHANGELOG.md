@@ -1,5 +1,13 @@
 # Change log
 
+## 2026-09-18 — Correctness fixes: session persistence flags, conversation token budget, and stream race condition
+
+- **Session persistence flags**: Preserved `control`, `failed`, and `complete` message properties in `storageService.saveSessions()` and `getSessions()`. Incomplete generations, connection error messages, and synthetic control commands are now reliably excluded from memory learning after browser reloads.
+- **Conversation history token budgeting**: Added `TokenBudgetManager.fitHistory()` in `pipelineEngine.js` to dynamically window messages backwards from newest to oldest within context limits. Integrated history budgeting into `promptService.buildCompiledPromptPipeline()` and `lmStudioClient.streamChat()`, ensuring total input tokens (`systemPrompt + history + maxTokens + safetyMargin`) strictly respect `contextLength`.
+- **TokenOverviewBar diagnostics**: Updated real-time context and history metrics to display fitted history tokens, accurate input tokens, and a windowed message badge (`fitted/total`) when history truncation is active.
+- **Stream Stop race condition**: Guarded streaming chat lifecycle in `App.jsx` with `currentStreamIdRef`. Callback handlers, errors, and the `finally` block for an aborted or preceding stream can no longer clear the state, reset `isStreaming`, or wipe `abortControllerRef` of an active subsequent generation.
+- **Verification**: Added 3 automated coherence tests covering session flag persistence/filtering and history token windowing (42 total coherence tests passing); `npm run lint` passed with zero errors.
+
 ## 2026-09-18 — Repository initialization and user chat privacy protection for GitHub
 
 - Initialized Git repository on `main` branch.

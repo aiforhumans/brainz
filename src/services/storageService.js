@@ -224,6 +224,9 @@ export const storageService = {
                 content: typeof m.content === 'string' ? m.content : (m.content ? String(m.content.text || m.content.content || '') : ''),
                 reasoningContent: typeof m.reasoningContent === 'string' ? m.reasoningContent : '',
                 image: typeof m.image === 'string' ? m.image : null,
+                complete: m.complete !== undefined ? Boolean(m.complete) : true,
+                failed: Boolean(m.failed),
+                control: Boolean(m.control),
                 stats: m.stats && typeof m.stats === 'object' ? {
                   tokens_per_second: Number(m.stats.tokens_per_second) || 0,
                   time_to_first_token_seconds: Number(m.stats.time_to_first_token_seconds) || 0,

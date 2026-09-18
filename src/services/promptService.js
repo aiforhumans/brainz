@@ -117,14 +117,30 @@ export function buildCompiledPromptPipeline({
     continuityRules: CONTINUITY_RULES,
   })
 
-  // 6. Token Budgeting
+  // 6. Token Budgeting: Coordinate System Prompt and Conversation History
   const budgetManager = new TokenBudgetManager({
     contextLength: settings?.contextLength || 8192,
     maxTokens: settings?.maxTokens || 1024,
   })
-  const budgetResult = budgetManager.fitContent(unbudgetedSections)
 
+  // Calculate history token demand
+  const rawHistory = Array.isArray(history) ? history : []
+  const initialHistory = budgetManager.fitHistory(rawHistory, budgetManager.availableContext)
+
+  // System prompt budget: protect context for history when conversation messages exist
+  const reservedForHistory = rawHistory.length > 0
+    ? Math.min(initialHistory.totalHistoryTokens, Math.floor(budgetManager.availableContext * 0.5))
+    : 0
+  const systemBudget = Math.max(budgetManager.availableContext - reservedForHistory, Math.floor(budgetManager.availableContext * 0.4))
+
+  const budgetResult = budgetManager.fitContent(unbudgetedSections, systemBudget)
   const systemPrompt = StructuredPromptCompiler.renderPrompt(budgetResult.compiledSections)
+
+  // Remaining available context goes to conversation history
+  const remainingForHistory = Math.max(0, budgetManager.availableContext - budgetResult.usedTokens)
+  const historyResult = budgetManager.fitHistory(rawHistory, remainingForHistory)
+
+  const totalInputTokens = budgetResult.usedTokens + historyResult.historyTokens
 
   const observability = {
     totalSections: budgetResult.compiledSections.length,
@@ -136,6 +152,12 @@ export function buildCompiledPromptPipeline({
     loreTokens,
     memoryScores: memoryDetails.map(m => ({ id: m.memory.id, score: m.score, relevance: m.relevance })),
     trimmedSections: budgetResult.trimmedSections,
+    historyTokens: historyResult.historyTokens,
+    totalHistoryTokens: historyResult.totalHistoryTokens,
+    fittedHistoryCount: historyResult.fittedMessages.length,
+    droppedHistoryCount: historyResult.droppedTurnsCount,
+    isHistoryTruncated: historyResult.isTruncated,
+    totalInputTokens,
   }
 
   return {
@@ -144,6 +166,7 @@ export function buildCompiledPromptPipeline({
     observability,
     selectedMemories: memories,
     selectedLore,
+    fittedHistory: historyResult.fittedMessages,
   }
 }
 

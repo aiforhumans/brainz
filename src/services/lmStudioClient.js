@@ -604,8 +604,10 @@ export class LMStudioClient {
     const isNsfwMode = Boolean(character?.nsfw || settings?.nsfwMode)
     const cacheKey = `${character?.id}|${userPersona?.name}|${brain?.revision ?? 0}|${messages.length}|${brain?.memories?.length ?? 0}|${isNsfwMode}`
     let systemPrompt
+    let fittedHistory
     if (this._promptCache.fingerprint === cacheKey) {
       systemPrompt = this._promptCache.systemPrompt
+      fittedHistory = this._promptCache.fittedHistory
     } else {
       const pipeline = buildCompiledPromptPipeline({
         character,
@@ -618,8 +620,10 @@ export class LMStudioClient {
         settings,
       })
       systemPrompt = pipeline.systemPrompt
-      this._promptCache = { fingerprint: cacheKey, systemPrompt }
+      fittedHistory = pipeline.fittedHistory || messages
+      this._promptCache = { fingerprint: cacheKey, systemPrompt, fittedHistory }
     }
+    const messagesToSend = Array.isArray(fittedHistory) && fittedHistory.length > 0 ? fittedHistory : messages
     const charName = character?.name?.trim() || 'Character'
     const userName = userPersona?.name?.trim() || 'User'
 
@@ -628,7 +632,7 @@ export class LMStudioClient {
       const adaptedNative = ModelAdapter.format({
         formatType: 'lmstudio_native',
         systemPrompt,
-        messages,
+        messages: messagesToSend,
         charName,
         userName,
         visionSupported: true,
@@ -701,7 +705,7 @@ export class LMStudioClient {
     // 3. Fallback to OpenAI-compatible endpoint (/v1/chat/completions)
     const formattedMessages = [
       { role: 'system', content: systemPrompt },
-      ...messages.map((m) => {
+      ...messagesToSend.map((m) => {
         if (m.image) {
           return {
             role: m.role,

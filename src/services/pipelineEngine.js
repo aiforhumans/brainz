@@ -411,7 +411,7 @@ export class TokenBudgetManager {
     }
   }
 
-  fitContent(sectionsWithPriority) {
+  fitContent(sectionsWithPriority, customBudget = null) {
     // Sort by priority descending (higher priority retained first)
     // Priority levels:
     // 10: Behavior & Dialogue Rules, Character Identity
@@ -427,18 +427,21 @@ export class TokenBudgetManager {
     let usedTokens = 0
     const compiled = []
     const trimmed = []
+    const effectiveLimit = customBudget !== null && customBudget !== undefined
+      ? Math.max(200, Number(customBudget))
+      : this.availableContext
 
     // Sort by priority descending
     const sorted = [...sectionsWithPriority].sort((a, b) => (b.priority || 0) - (a.priority || 0))
 
     for (const section of sorted) {
       const tokens = estimateTokens(section.content)
-      if (usedTokens + tokens <= this.availableContext) {
+      if (usedTokens + tokens <= effectiveLimit) {
         compiled.push(section)
         usedTokens += tokens
       } else {
         // Can we trim or must we drop?
-        const remainingSpace = this.availableContext - usedTokens
+        const remainingSpace = effectiveLimit - usedTokens
         if (remainingSpace > 50 && section.allowPartial) {
           const charBudget = remainingSpace * 4
           const truncated = section.content.slice(0, charBudget) + '\n...[context trimmed for space]'
@@ -455,9 +458,63 @@ export class TokenBudgetManager {
       compiledSections: compiled,
       usedTokens,
       availableContext: this.availableContext,
+      budgetLimit: effectiveLimit,
       generationReserve: this.maxTokens,
       trimmedSections: trimmed,
       contextWarning: this.availableContext < 1500 ? 'Very low available context — summaries and lore may be fully trimmed' : null,
+    }
+  }
+
+  /**
+   * Fit conversation history within a strict token budget.
+   * Windows backwards from newest turns towards oldest, ensuring recent context and
+   * the immediate user turn are strictly preserved while dropping older turns that exceed budget.
+   */
+  fitHistory(messages = [], historyBudget = null) {
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return {
+        fittedMessages: [],
+        historyTokens: 0,
+        droppedTurnsCount: 0,
+        totalHistoryTokens: 0,
+        isTruncated: false,
+      }
+    }
+
+    const maxBudget = historyBudget !== null && historyBudget !== undefined
+      ? Math.max(100, Number(historyBudget))
+      : this.availableContext
+
+    const messageCosts = messages.map((m) => {
+      const text = typeof m.content === 'string' ? m.content : (m.content ? JSON.stringify(m.content) : '')
+      const imageCost = m.image ? 250 : 0
+      return estimateTokens(text) + imageCost + 4
+    })
+
+    const totalHistoryTokens = messageCosts.reduce((acc, c) => acc + c, 0)
+
+    const includedIndices = []
+    let accumulatedTokens = 0
+
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const cost = messageCosts[i]
+      if (accumulatedTokens + cost <= maxBudget || includedIndices.length === 0) {
+        includedIndices.unshift(i)
+        accumulatedTokens += cost
+      } else {
+        break
+      }
+    }
+
+    const fittedMessages = includedIndices.map((idx) => messages[idx])
+    const droppedTurnsCount = messages.length - fittedMessages.length
+
+    return {
+      fittedMessages,
+      historyTokens: accumulatedTokens,
+      droppedTurnsCount,
+      totalHistoryTokens,
+      isTruncated: droppedTurnsCount > 0,
     }
   }
 }

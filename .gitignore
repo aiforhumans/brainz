@@ -1,5 +1,28 @@
+# Dependencies and package-manager caches
+node_modules/
+.npm/
+.pnpm-store/
+.yarn/cache/
+.yarn/unplugged/
+.yarn/build-state.yml
+.yarn/install-state.gz
+.pnp.*
+
+# Build, test, and tool outputs
+dist/
+dist-ssr/
+.vite/
+coverage/
+.nyc_output/
+test-results/
+playwright-report/
+blob-report/
+*.tsbuildinfo
+.eslintcache
+.stylelintcache
+
 # Logs
-logs
+logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -7,13 +30,21 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-# Dependencies & Build outputs
-node_modules
-dist
-dist-ssr
+# Environment files and local secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.env
 *.local
+.npmrc
+*.pem
+*.key
+*.p12
+*.pfx
 
-# User Chat Data, Transcripts & Exports (ensures no personal roleplay/chat data is ever uploaded)
+# User chat data, transcripts, and exports
+# Keep personal roleplay/chat data out of source control.
 *_transcript.md
 *_transcript.*
 *transcript*
@@ -34,19 +65,23 @@ data/
 *.backup
 localStorage*
 
-# Environment & Secret files
-.env
-.env.local
-.env.*.local
-.env.development
-.env.production
-*.env
+# Temporary files and caches
+.cache/
+.tmp/
+tmp/
+temp/
+*.tmp
+*.temp
+*.orig
+*.sw?
+*~
 
-# Editor & System files
+# Editors and operating-system metadata
 .vscode/*
 !.vscode/extensions.json
-.idea
+.idea/
 .DS_Store
+._*
 Thumbs.db
 ehthumbs.db
 [Dd]esktop.ini
@@ -54,12 +89,13 @@ ehthumbs.db
 *.ntvs*
 *.njsproj
 *.sln
-*.sw?
-*.tmp
-*.temp
 
-# AI Agent / Tooling local metadata
+# AI agent and local tooling metadata
 .agents/
 .antigravity/
+.claude/
+.codex/
+.continue/
+.cursor/
 .gemini/
-
+.windsurf/

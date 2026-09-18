@@ -589,9 +589,11 @@ export class LMStudioClient {
     return fingerprint([
       character?.id,
       character?.name,
+      character?.tagline,
       character?.personality,
       character?.scenario,
       character?.systemPrompt,
+      character?.greeting,
       character?.nsfw,
       userPersona?.name,
       userPersona?.title,
@@ -600,14 +602,25 @@ export class LMStudioClient {
       mature,
       settings?.contextLength,
       settings?.maxTokens,
+      settings?.temperature,
+      settings?.topP,
+      settings?.topK,
+      settings?.minP,
+      settings?.repeatPenalty,
       brain?.revision || 0,
       brain?.sceneState || null,
       (brain?.memories || []).map(m => [m.id, m.content, m.status, m.confidence]),
       (brain?.sessionSummaries || []).map(s => [s.sessionId, s.summary, s.status]),
-      (messages || []).length,
-      messages?.[messages.length - 1]?.id,
-      messages?.[messages.length - 1]?.content,
-      (messages || []).slice(-4).map(m => [m.id, m.role, m.content]),
+      // Fingerprint the entire prompt message history, not just recent messages
+      (messages || []).map(m => [
+        m.id,
+        m.role,
+        m.content,
+        m.image || null,
+        Boolean(m.complete),
+        Boolean(m.failed),
+        Boolean(m.control),
+      ]),
     ])
   }
 

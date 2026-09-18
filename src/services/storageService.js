@@ -171,6 +171,31 @@ export const storageService = {
     }
   },
 
+  // Cleanup image attachments from IndexedDB
+  cleanupMessageImages(messages = []) {
+    if (!Array.isArray(messages)) return
+    const keys = []
+    for (const m of messages) {
+      if (m?.imageKey && typeof m.imageKey === 'string' && m.imageKey.startsWith('idb:')) {
+        keys.push(m.imageKey)
+      } else if (m?.image && typeof m.image === 'string' && m.image.startsWith('idb:')) {
+        keys.push(m.image)
+      }
+    }
+    if (keys.length > 0) {
+      imageStorage.deleteImages(keys).catch(() => {})
+    }
+  },
+
+  cleanupSessionsImages(sessions = []) {
+    if (!Array.isArray(sessions)) return
+    for (const s of sessions) {
+      if (Array.isArray(s?.messages)) {
+        this.cleanupMessageImages(s.messages)
+      }
+    }
+  },
+
   // Purge session data for character IDs that no longer exist
   // validCharacterIds: Set<string> of IDs that should be kept
   purgeOrphanedSessions(validCharacterIds) {
@@ -182,8 +207,10 @@ export const storageService = {
       for (const [charId, charSessions] of Object.entries(parsed)) {
         if (validCharacterIds.has(charId)) {
           cleaned[charId] = charSessions
+        } else {
+          // Clean up stored IndexedDB images for purged characters
+          this.cleanupSessionsImages(charSessions)
         }
-        // else: drop sessions for this character entirely
       }
       localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(cleaned))
     } catch (e) {
@@ -210,52 +237,12 @@ export const storageService = {
     }
   },
 
-  saveSessions(sessions) {
-    let sanitized = {}
+  _writeSessionsToLocalStorage(sanitized) {
     try {
-      for (const [charId, charSessions] of Object.entries(sessions || {})) {
-        if (!Array.isArray(charSessions)) continue
-        sanitized[charId] = charSessions.map((s) => ({
-          id: String(s.id || ''),
-          title: String(s.title || 'Chat Session'),
-          createdAt: typeof s.createdAt === 'number' ? s.createdAt : Date.now(),
-          updatedAt: typeof s.updatedAt === 'number' ? s.updatedAt : Date.now(),
-          messages: Array.isArray(s.messages)
-            ? s.messages.map((m) => {
-                let imageRef = typeof m.image === 'string' ? m.image : null
-                if (imageRef && imageRef.startsWith('data:image/')) {
-                  const imageKey = `idb:img_${m.id || Date.now()}`
-                  imageStorage.saveImage(imageKey, imageRef).catch((err) => {
-                    console.warn('Could not persist image to IndexedDB', err)
-                  })
-                  imageRef = imageKey
-                }
-                return {
-                  id: String(m.id || ''),
-                  role: m.role === 'assistant' ? 'assistant' : (m.role === 'system' ? 'system' : 'user'),
-                  content: typeof m.content === 'string' ? m.content : (m.content ? String(m.content.text || m.content.content || '') : ''),
-                  reasoningContent: typeof m.reasoningContent === 'string' ? m.reasoningContent : '',
-                  image: imageRef,
-                  complete: m.complete !== undefined ? Boolean(m.complete) : true,
-                  failed: Boolean(m.failed),
-                  control: Boolean(m.control),
-                  stats: m.stats && typeof m.stats === 'object' ? {
-                    tokens_per_second: Number(m.stats.tokens_per_second) || 0,
-                    time_to_first_token_seconds: Number(m.stats.time_to_first_token_seconds) || 0,
-                    total_output_tokens: Number(m.stats.total_output_tokens) || 0,
-                  } : null,
-                  createdAt: typeof m.createdAt === 'number' ? m.createdAt : Date.now(),
-                  model: typeof m.model === 'string' ? m.model : null,
-                  responseId: typeof m.responseId === 'string' ? m.responseId : null,
-                }
-              })
-            : [],
-        }))
-      }
       localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(sanitized))
     } catch (e) {
       console.error('Failed to save sessions', e)
-      // Emergency recovery: if quota exceeded, strip any legacy/large images to avoid breaking chat persistence
+      // Emergency recovery: if quota exceeded, strip any non-idb images to avoid breaking chat persistence
       try {
         const stripped = JSON.parse(JSON.stringify(sanitized))
         for (const charSessions of Object.values(stripped)) {
@@ -276,6 +263,97 @@ export const storageService = {
     }
   },
 
+  async saveSessions(sessions) {
+    if (!sessions || typeof sessions !== 'object') return
+    const pendingWrites = []
+
+    const sanitizeMessage = (m) => {
+      let imageForStorage = null
+
+      if (typeof m.image === 'string') {
+        if (m.image.startsWith('idb:')) {
+          imageForStorage = m.image
+          m.imageKey = m.image
+        } else if (m.image.startsWith('data:image/')) {
+          // If already saved to IndexedDB previously, reuse the existing idb key!
+          if (m.imageKey && m.imageKey.startsWith('idb:') && imageStorage.isKeyPersisted(m.imageKey)) {
+            imageForStorage = m.imageKey
+          } else {
+            // New unpersisted Base64 image
+            const key = m.imageKey || `idb:img_${m.id || Date.now()}`
+            pendingWrites.push({ message: m, key, dataUrl: m.image })
+            // Only replace Base64 with an idb: reference AFTER the IndexedDB write succeeds.
+            // Initially keep Base64:
+            imageForStorage = m.image
+          }
+        } else {
+          imageForStorage = m.image
+        }
+      }
+
+      return {
+        id: String(m.id || ''),
+        role: m.role === 'assistant' ? 'assistant' : (m.role === 'system' ? 'system' : 'user'),
+        content: typeof m.content === 'string' ? m.content : (m.content ? String(m.content.text || m.content.content || '') : ''),
+        reasoningContent: typeof m.reasoningContent === 'string' ? m.reasoningContent : '',
+        image: imageForStorage,
+        imageKey: m.imageKey || (imageForStorage && imageForStorage.startsWith('idb:') ? imageForStorage : null),
+        complete: m.complete !== undefined ? Boolean(m.complete) : true,
+        failed: Boolean(m.failed),
+        control: Boolean(m.control),
+        stats: m.stats && typeof m.stats === 'object' ? {
+          tokens_per_second: Number(m.stats.tokens_per_second) || 0,
+          time_to_first_token_seconds: Number(m.stats.time_to_first_token_seconds) || 0,
+          total_output_tokens: Number(m.stats.total_output_tokens) || 0,
+        } : null,
+        createdAt: typeof m.createdAt === 'number' ? m.createdAt : Date.now(),
+        model: typeof m.model === 'string' ? m.model : null,
+        responseId: typeof m.responseId === 'string' ? m.responseId : null,
+      }
+    }
+
+    const buildSanitized = () => {
+      const sanitized = {}
+      for (const [charId, charSessions] of Object.entries(sessions)) {
+        if (!Array.isArray(charSessions)) continue
+        sanitized[charId] = charSessions.map((s) => ({
+          id: String(s.id || ''),
+          title: String(s.title || 'Chat Session'),
+          createdAt: typeof s.createdAt === 'number' ? s.createdAt : Date.now(),
+          updatedAt: typeof s.updatedAt === 'number' ? s.updatedAt : Date.now(),
+          messages: Array.isArray(s.messages) ? s.messages.map(sanitizeMessage) : [],
+        }))
+      }
+      return sanitized
+    }
+
+    // 1. Initial write to LocalStorage
+    this._writeSessionsToLocalStorage(buildSanitized())
+
+    // 2. If there are pending new images, write them to IndexedDB
+    if (pendingWrites.length > 0) {
+      const results = await Promise.all(
+        pendingWrites.map(async ({ message, key, dataUrl }) => {
+          try {
+            const ok = await imageStorage.saveImage(key, dataUrl)
+            if (ok) {
+              message.imageKey = key
+              return true
+            }
+          } catch (e) {
+            console.error('Failed to write image to IndexedDB:', e)
+          }
+          return false
+        })
+      )
+
+      // 3. ONLY replace Base64 with an idb: reference after the IndexedDB write succeeds!
+      if (results.some(Boolean)) {
+        this._writeSessionsToLocalStorage(buildSanitized())
+      }
+    }
+  },
+
   async hydrateSessionImages(sessions) {
     if (!sessions || typeof sessions !== 'object') return null
     let anyHydrated = false
@@ -291,13 +369,14 @@ export const storageService = {
           let sessionChanged = false
           const updatedMessages = await Promise.all(
             session.messages.map(async (msg) => {
-              if (msg.image && typeof msg.image === 'string' && msg.image.startsWith('idb:')) {
+              const imageRef = msg.imageKey || msg.image
+              if (imageRef && typeof imageRef === 'string' && imageRef.startsWith('idb:')) {
                 try {
-                  const dataUrl = await imageStorage.getImage(msg.image)
+                  const dataUrl = await imageStorage.getImage(imageRef)
                   if (dataUrl) {
                     sessionChanged = true
                     anyHydrated = true
-                    return { ...msg, image: dataUrl }
+                    return { ...msg, image: dataUrl, imageKey: imageRef }
                   }
                 } catch (err) {
                   console.warn('Failed to hydrate image for message', msg.id, err)

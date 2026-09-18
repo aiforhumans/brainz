@@ -435,21 +435,28 @@ export class TokenBudgetManager {
     const sorted = [...sectionsWithPriority].sort((a, b) => (b.priority || 0) - (a.priority || 0))
 
     for (const section of sorted) {
-      const tokens = estimateTokens(section.content)
-      if (usedTokens + tokens <= effectiveLimit) {
+      // Include XML tag, markdown header, and wrapper newlines in the token estimate
+      const tag = section.tag || 'section'
+      const title = section.title || ''
+      const wrapperText = `<${tag}>\n# ${title}\n\n</${tag}>`
+      const wrapperTokens = estimateTokens(wrapperText) + 2
+      const fullSectionTokens = estimateTokens(section.content) + wrapperTokens
+
+      if (usedTokens + fullSectionTokens <= effectiveLimit) {
         compiled.push(section)
-        usedTokens += tokens
+        usedTokens += fullSectionTokens
       } else {
         // Can we trim or must we drop?
         const remainingSpace = effectiveLimit - usedTokens
-        if (remainingSpace > 50 && section.allowPartial) {
-          const charBudget = remainingSpace * 4
+        const remainingForContent = remainingSpace - wrapperTokens
+        if (remainingForContent > 30 && section.allowPartial) {
+          const charBudget = remainingForContent * 4
           const truncated = section.content.slice(0, charBudget) + '\n...[context trimmed for space]'
           compiled.push({ ...section, content: truncated, partial: true })
-          usedTokens += estimateTokens(truncated)
-          trimmed.push({ title: section.title, droppedTokens: tokens - remainingSpace })
+          usedTokens += estimateTokens(truncated) + wrapperTokens
+          trimmed.push({ title: section.title, droppedTokens: fullSectionTokens - remainingSpace })
         } else {
-          trimmed.push({ title: section.title, droppedTokens: tokens })
+          trimmed.push({ title: section.title, droppedTokens: fullSectionTokens })
         }
       }
     }
@@ -469,6 +476,7 @@ export class TokenBudgetManager {
    * Fit conversation history within a strict token budget.
    * Windows backwards from newest turns towards oldest, ensuring recent context and
    * the immediate user turn are strictly preserved while dropping older turns that exceed budget.
+   * If the latest turn itself is oversized, it is truncated so the total context limit is never exceeded.
    */
   fitHistory(messages = [], historyBudget = null) {
     if (!Array.isArray(messages) || messages.length === 0) {
@@ -481,9 +489,11 @@ export class TokenBudgetManager {
       }
     }
 
-    const maxBudget = historyBudget !== null && historyBudget !== undefined
-      ? Math.max(100, Number(historyBudget))
+    const safetyBuffer = 16
+    const rawBudget = historyBudget !== null && historyBudget !== undefined
+      ? Number(historyBudget)
       : this.availableContext
+    const maxBudget = Math.max(50, rawBudget - safetyBuffer)
 
     const messageCosts = messages.map((m) => {
       const text = typeof m.content === 'string' ? m.content : (m.content ? JSON.stringify(m.content) : '')
@@ -493,20 +503,42 @@ export class TokenBudgetManager {
 
     const totalHistoryTokens = messageCosts.reduce((acc, c) => acc + c, 0)
 
-    const includedIndices = []
+    const fittedMessages = []
     let accumulatedTokens = 0
 
+    // Process backwards from latest message to oldest
     for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i]
       const cost = messageCosts[i]
-      if (accumulatedTokens + cost <= maxBudget || includedIndices.length === 0) {
-        includedIndices.unshift(i)
-        accumulatedTokens += cost
+
+      if (i === messages.length - 1) {
+        // Latest message: if it fits within maxBudget, include intact.
+        // If oversized, truncate it so total context never exceeds the model limit.
+        if (cost <= maxBudget) {
+          fittedMessages.unshift(m)
+          accumulatedTokens += cost
+        } else {
+          const text = typeof m.content === 'string' ? m.content : (m.content ? JSON.stringify(m.content) : '')
+          const imageCost = m.image ? 250 : 0
+          const availableForText = Math.max(20, maxBudget - imageCost - 8)
+          const charLimit = Math.max(80, availableForText * 4)
+          const truncatedContent = text.slice(0, charLimit) + '\n...[message truncated to fit context]'
+          const truncatedMessage = { ...m, content: truncatedContent, truncated: true }
+          const truncatedCost = estimateTokens(truncatedContent) + imageCost + 4
+          fittedMessages.unshift(truncatedMessage)
+          accumulatedTokens += truncatedCost
+          break
+        }
       } else {
-        break
+        if (accumulatedTokens + cost <= maxBudget) {
+          fittedMessages.unshift(m)
+          accumulatedTokens += cost
+        } else {
+          break
+        }
       }
     }
 
-    const fittedMessages = includedIndices.map((idx) => messages[idx])
     const droppedTurnsCount = messages.length - fittedMessages.length
 
     return {
@@ -514,7 +546,7 @@ export class TokenBudgetManager {
       historyTokens: accumulatedTokens,
       droppedTurnsCount,
       totalHistoryTokens,
-      isTruncated: droppedTurnsCount > 0,
+      isTruncated: droppedTurnsCount > 0 || Boolean(fittedMessages[fittedMessages.length - 1]?.truncated),
     }
   }
 }
@@ -537,29 +569,49 @@ export class ModelAdapter {
   }) {
     switch (formatType) {
       case 'lmstudio_native': {
-        const transcriptLines = []
+        const hasImages = visionSupported && messages.some(m => m.role === 'user' && m.image)
+        if (!hasImages) {
+          const transcriptLines = []
+          for (const m of messages) {
+            if (!m.content && !m.image) continue
+            const speaker = m.role === 'user' ? userName : charName
+            transcriptLines.push(`${speaker}: ${m.content || ''}`)
+          }
+          transcriptLines.push(`${charName}:`)
+          return {
+            system_prompt: systemPrompt,
+            input: transcriptLines.join('\n\n'),
+            format: 'lmstudio_native',
+          }
+        }
+
+        // Multimodal native format: keep each image tied to its original user message turn
+        const inputBlocks = []
+        let currentTextLines = []
+
         for (const m of messages) {
           if (!m.content && !m.image) continue
           const speaker = m.role === 'user' ? userName : charName
-          transcriptLines.push(`${speaker}: ${m.content || ''}`)
-        }
-        transcriptLines.push(`${charName}:`)
-        const transcriptString = transcriptLines.join('\n\n')
+          const line = `${speaker}: ${m.content || ''}`
+          currentTextLines.push(line)
 
-        let input = transcriptString
-        if (visionSupported) {
-          const userMessagesWithImages = messages.filter(m => m.role === 'user' && m.image)
-          if (userMessagesWithImages.length > 0) {
-            input = [
-              { type: 'text', content: transcriptString },
-              ...userMessagesWithImages.map(m => ({ type: 'image', data_url: m.image })),
-            ]
+          if (visionSupported && m.role === 'user' && m.image) {
+            if (currentTextLines.length > 0) {
+              inputBlocks.push({ type: 'text', content: currentTextLines.join('\n\n') })
+              currentTextLines = []
+            }
+            inputBlocks.push({ type: 'image', data_url: m.image })
           }
+        }
+
+        currentTextLines.push(`${charName}:`)
+        if (currentTextLines.length > 0) {
+          inputBlocks.push({ type: 'text', content: currentTextLines.join('\n\n') })
         }
 
         return {
           system_prompt: systemPrompt,
-          input,
+          input: inputBlocks,
           format: 'lmstudio_native',
         }
       }

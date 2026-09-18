@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { LMStudioClient } from '../src/services/lmStudioClient.js'
 import { isAutoLearnDue, createBrain, normalizeBrain, reconcileBrain, sessionFingerprint, sessionChunks, selectMemories, applyLearningResult, validateLearningResult, eligibleMessages } from '../src/services/brainService.js'
 import { buildChatPrompt, buildBrainPrompt, buildCompiledPromptPipeline, createCharacterTemplate, authoredFields, replaceMacros, resolveCharacterMacros } from '../src/services/promptService.js'
-import { storageService, generateContextualBrain } from '../src/services/storageService.js'
+import { storageService, generateContextualBrain, imageStorage } from '../src/services/storageService.js'
 import { DEFAULT_CHARACTERS, migrateDefaultCharacter } from '../src/services/defaultCharacters.js'
 import { SceneStateManager, MemoryConflictEngine, HybridLoreRetriever, TokenBudgetManager, ModelAdapter, StructuredPromptCompiler } from '../src/services/pipelineEngine.js'
 
@@ -571,7 +571,7 @@ await check('ModelAdapter.format(lmstudio_native) includes all attached images a
   assert.equal(images[1].data_url, 'data:image/png;base64,BBB')
 })
 
-await check('storageService offloads base64 images to IndexedDB and hydrates them', async () => {
+await check('storageService offloads base64 images to IndexedDB only after write succeeds, and cleans them up', async () => {
   const fakeSession = {
     alex: [{
       id: 'sess-img',
@@ -585,7 +585,7 @@ await check('storageService offloads base64 images to IndexedDB and hydrates the
       ],
     }],
   }
-  storageService.saveSessions(fakeSession)
+  await storageService.saveSessions(fakeSession)
   const savedJson = storageService.getSessions()
   const savedMsgs = savedJson.alex[0].messages
 
@@ -597,22 +597,49 @@ await check('storageService offloads base64 images to IndexedDB and hydrates the
   assert.ok(hydrated)
   assert.equal(hydrated.alex[0].messages[0].image, 'data:image/png;base64,VERYLONGBASE64STRING1')
   assert.equal(hydrated.alex[0].messages[2].image, 'data:image/png;base64,VERYLONGBASE64STRING2')
+
+  // Re-saving hydrated sessions preserves existing idb pointers without re-uploading
+  await storageService.saveSessions(hydrated)
+  const reSaved = storageService.getSessions()
+  assert.equal(reSaved.alex[0].messages[0].image, savedMsgs[0].image)
+
+  // Image cleanup removes key from storage
+  const imgKey = savedMsgs[0].image
+  assert.equal(imageStorage.isKeyPersisted(imgKey), true)
+  storageService.cleanupMessageImages([savedMsgs[0]])
+  assert.equal(imageStorage.isKeyPersisted(imgKey), false)
 })
 
-await check('lmStudioClient._computePromptFingerprint changes when persona, character, or memories change', () => {
+await check('lmStudioClient._computePromptFingerprint changes on any message turn or context change', () => {
   const baseParams = {
     character: { id: 'alex', name: 'Alex', systemPrompt: 'System', personality: 'Calm' },
     userPersona: { name: 'Sam', bio: 'Gardener' },
     lorebook: [{ key: 'castle', content: 'Old castle' }],
     brain: { memories: [{ id: 'mem-1', content: 'Likes tea' }], sceneState: { location: 'Garden' } },
     settings: { temperature: 0.7, topP: 0.9 },
-    messages: [{ id: 'msg-1', role: 'user', content: 'Hello' }],
+    messages: [
+      { id: 'msg-1', role: 'user', content: 'Turn 1: Hello' },
+      { id: 'msg-2', role: 'assistant', content: 'Turn 2: Hi' },
+      { id: 'msg-3', role: 'user', content: 'Turn 3: Nice day' },
+      { id: 'msg-4', role: 'assistant', content: 'Turn 4: Indeed' },
+      { id: 'msg-5', role: 'user', content: 'Turn 5: Latest' },
+    ],
   }
 
   const fpBase = client._computePromptFingerprint(baseParams)
   assert.ok(fpBase)
 
   assert.equal(client._computePromptFingerprint(baseParams), fpBase)
+
+  // Modifying the FIRST message (not just recent) invalidates the fingerprint
+  const fpEarlyEdit = client._computePromptFingerprint({
+    ...baseParams,
+    messages: [
+      { id: 'msg-1', role: 'user', content: 'Turn 1: Edited earlier text' },
+      ...baseParams.messages.slice(1),
+    ],
+  })
+  assert.notEqual(fpEarlyEdit, fpBase)
 
   const fpNewMem = client._computePromptFingerprint({
     ...baseParams,
@@ -631,6 +658,22 @@ await check('lmStudioClient._computePromptFingerprint changes when persona, char
     userPersona: { ...baseParams.userPersona, name: 'Alice' },
   })
   assert.notEqual(fpNewPersona, fpBase)
+})
+
+await check('TokenBudgetManager truncates oversized latest message so total context never exceeds model limit', () => {
+  const budget = new TokenBudgetManager({ contextLength: 2048, maxTokens: 512, safetyMargin: 128 })
+  // Available context is 2048 - 512 - 128 = 1408
+  const massiveUserMessage = {
+    id: 'm-huge',
+    role: 'user',
+    content: 'Massive document text '.repeat(2000), // ~10,000 tokens!
+  }
+
+  const result = budget.fitHistory([massiveUserMessage], 400)
+  assert.equal(result.fittedMessages.length, 1)
+  assert.equal(result.isTruncated, true)
+  assert.ok(result.historyTokens <= 400)
+  assert.match(result.fittedMessages[0].content, /\[message truncated to fit context\]/)
 })
 
 console.log(`\n${passed} coherence checks passed.`)

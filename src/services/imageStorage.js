@@ -7,6 +7,8 @@ const DB_VERSION = 1
 
 // In-memory fallback for environments without IndexedDB (e.g. Node.js tests)
 const memoryFallback = new Map()
+// Track keys confirmed to be written in storage to avoid redundant writes
+const persistedKeys = new Set()
 
 function isIndexedDBAvailable() {
   return typeof window !== 'undefined' && typeof window.indexedDB !== 'undefined' && window.indexedDB !== null
@@ -30,10 +32,38 @@ function openDB() {
 }
 
 export const imageStorage = {
+  isKeyPersisted(key) {
+    if (!key) return false
+    return persistedKeys.has(key) || memoryFallback.has(key)
+  },
+
+  async hasImage(key) {
+    if (!key) return false
+    if (this.isKeyPersisted(key)) return true
+    if (!isIndexedDBAvailable()) return false
+    try {
+      const db = await openDB()
+      return new Promise((resolve) => {
+        const tx = db.transaction(STORE_NAME, 'readonly')
+        const store = tx.objectStore(STORE_NAME)
+        const req = store.count(key)
+        req.onsuccess = () => {
+          const exists = req.result > 0
+          if (exists) persistedKeys.add(key)
+          resolve(exists)
+        }
+        req.onerror = () => resolve(false)
+      })
+    } catch {
+      return false
+    }
+  },
+
   async saveImage(key, dataUrl) {
     if (!key || !dataUrl) return false
     if (!isIndexedDBAvailable()) {
       memoryFallback.set(key, dataUrl)
+      persistedKeys.add(key)
       return true
     }
     try {
@@ -42,12 +72,16 @@ export const imageStorage = {
         const tx = db.transaction(STORE_NAME, 'readwrite')
         const store = tx.objectStore(STORE_NAME)
         const req = store.put(dataUrl, key)
-        req.onsuccess = () => resolve(true)
+        req.onsuccess = () => {
+          persistedKeys.add(key)
+          resolve(true)
+        }
         req.onerror = () => reject(req.error)
       })
     } catch (e) {
       console.warn('Failed to save image in IndexedDB, using memory fallback:', e)
       memoryFallback.set(key, dataUrl)
+      persistedKeys.add(key)
       return true
     }
   },
@@ -55,7 +89,9 @@ export const imageStorage = {
   async getImage(key) {
     if (!key) return null
     if (!isIndexedDBAvailable() || memoryFallback.has(key)) {
-      return memoryFallback.get(key) || null
+      const item = memoryFallback.get(key) || null
+      if (item) persistedKeys.add(key)
+      return item
     }
     try {
       const db = await openDB()
@@ -63,7 +99,11 @@ export const imageStorage = {
         const tx = db.transaction(STORE_NAME, 'readonly')
         const store = tx.objectStore(STORE_NAME)
         const req = store.get(key)
-        req.onsuccess = () => resolve(req.result || memoryFallback.get(key) || null)
+        req.onsuccess = () => {
+          const result = req.result || memoryFallback.get(key) || null
+          if (result) persistedKeys.add(key)
+          resolve(result)
+        }
         req.onerror = () => reject(req.error)
       })
     } catch (e) {
@@ -74,6 +114,7 @@ export const imageStorage = {
 
   async deleteImage(key) {
     if (!key) return false
+    persistedKeys.delete(key)
     memoryFallback.delete(key)
     if (!isIndexedDBAvailable()) return true
     try {
@@ -84,6 +125,30 @@ export const imageStorage = {
         const req = store.delete(key)
         req.onsuccess = () => resolve(true)
         req.onerror = () => reject(req.error)
+      })
+    } catch {
+      return false
+    }
+  },
+
+  async deleteImages(keys = []) {
+    if (!Array.isArray(keys) || keys.length === 0) return true
+    const validKeys = keys.filter(Boolean)
+    for (const key of validKeys) {
+      persistedKeys.delete(key)
+      memoryFallback.delete(key)
+    }
+    if (!isIndexedDBAvailable()) return true
+    try {
+      const db = await openDB()
+      return new Promise((resolve) => {
+        const tx = db.transaction(STORE_NAME, 'readwrite')
+        const store = tx.objectStore(STORE_NAME)
+        for (const key of validKeys) {
+          store.delete(key)
+        }
+        tx.oncomplete = () => resolve(true)
+        tx.onerror = () => resolve(false)
       })
     } catch {
       return false

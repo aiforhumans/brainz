@@ -136,8 +136,9 @@ export function buildCompiledPromptPipeline({
   const budgetResult = budgetManager.fitContent(unbudgetedSections, systemBudget)
   const systemPrompt = StructuredPromptCompiler.renderPrompt(budgetResult.compiledSections)
 
-  // Remaining available context goes to conversation history
-  const remainingForHistory = Math.max(0, budgetManager.availableContext - budgetResult.usedTokens)
+  // Remaining available context goes to conversation history with a dedicated safety buffer
+  const safetyBuffer = 32
+  const remainingForHistory = Math.max(0, budgetManager.availableContext - budgetResult.usedTokens - safetyBuffer)
   const historyResult = budgetManager.fitHistory(rawHistory, remainingForHistory)
 
   const totalInputTokens = budgetResult.usedTokens + historyResult.historyTokens

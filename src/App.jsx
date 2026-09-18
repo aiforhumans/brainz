@@ -266,6 +266,14 @@ export default function App() {
     invalidateLearning(id)
     pendingLearningRef.current.delete(id)
     storageService.markCharacterDeleted(id)
+    const charSessions = sessions[id] || []
+    storageService.cleanupSessionsImages(charSessions)
+    setSessions((prev) => {
+      const next = { ...prev }
+      delete next[id]
+      storageService.saveSessions(next)
+      return next
+    })
     setCharacters((prev) => {
       const updated = prev.filter((c) => c.id !== id)
       storageService.saveCharacters(updated)
@@ -354,6 +362,11 @@ export default function App() {
     const charSessions = sessions[activeCharacter.id] || []
     if (charSessions.length <= 1) return
 
+    const sessionToDelete = charSessions.find((s) => s.id === sessionId)
+    if (sessionToDelete) {
+      storageService.cleanupSessionsImages([sessionToDelete])
+    }
+
     const filtered = charSessions.filter((s) => s.id !== sessionId)
     const updated = {
       ...sessions,
@@ -390,6 +403,7 @@ export default function App() {
     }
     setInput('')
     setAttachedImage(null)
+    storageService.cleanupMessageImages(currentMessages)
     updateCurrentSessionMessages([])
   }
 
@@ -710,6 +724,10 @@ export default function App() {
 
   // Delete an existing message
   const handleDeleteMessage = (messageId) => {
+    const msgToDelete = currentMessages.find((m) => m.id === messageId)
+    if (msgToDelete) {
+      storageService.cleanupMessageImages([msgToDelete])
+    }
     const updatedMsgs = currentMessages.filter((m) => m.id !== messageId)
     updateCurrentSessionMessages(updatedMsgs)
   }

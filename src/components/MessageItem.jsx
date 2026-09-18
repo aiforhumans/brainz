@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import {
   Copy,
   Check,
@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { formatRoleplayContent } from '../utils/roleplayFormatter'
 import { replaceMacros } from '../utils/macroUtils.js'
+import { imageStorage } from '../services/imageStorage.js'
 
 export function MessageItem({
   message,
@@ -27,6 +28,29 @@ export function MessageItem({
   const [isEditing, setIsEditing] = useState(false)
   const [editContent, setEditContent] = useState(message.content)
   const [copied, setCopied] = useState(false)
+  const [resolvedImage, setResolvedImage] = useState(() => (
+    message.image && !message.image.startsWith('idb:') ? message.image : null
+  ))
+
+  useEffect(() => {
+    if (!message.image) {
+      setResolvedImage(null)
+      return
+    }
+    if (!message.image.startsWith('idb:')) {
+      setResolvedImage(message.image)
+      return
+    }
+    let cancelled = false
+    imageStorage.getImage(message.image).then((dataUrl) => {
+      if (!cancelled && dataUrl) {
+        setResolvedImage(dataUrl)
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [message.image])
 
   const isUser = message.role === 'user'
   const senderName = isUser ? (userPersona?.name || 'You') : character.name
@@ -154,15 +178,30 @@ export function MessageItem({
         )}
 
         {/* Multimodal Attached Image */}
-        {message.image && (
+        {resolvedImage && (
           <div className="message-image-container">
             <img
-              src={message.image}
+              src={resolvedImage}
               alt="Scene visual"
               className="message-attached-image"
               onClick={() => {
                 const w = window.open('')
-                w?.document.write(`<img src="${message.image}" style="max-width:100%;max-height:100vh;display:block;margin:auto;background:#0b0f19;" />`)
+                if (w) {
+                  w.document.title = 'LoreForge Image Preview'
+                  w.document.body.style.margin = '0'
+                  w.document.body.style.background = '#0b0f19'
+                  w.document.body.style.display = 'flex'
+                  w.document.body.style.alignItems = 'center'
+                  w.document.body.style.justifyContent = 'center'
+                  w.document.body.style.minHeight = '100vh'
+                  const img = w.document.createElement('img')
+                  img.src = resolvedImage
+                  img.style.maxWidth = '100%'
+                  img.style.maxHeight = '100vh'
+                  img.style.objectFit = 'contain'
+                  img.alt = 'Attached scene image preview'
+                  w.document.body.appendChild(img)
+                }
               }}
               title="Click to view full image"
             />

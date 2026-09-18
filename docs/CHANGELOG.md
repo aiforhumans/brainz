@@ -1,5 +1,15 @@
 # Change log
 
+## 2026-09-18 — Correctness & hardening fixes: media persistence, prompt cache, multimodal history, token diagnostics, telemetry & preview security
+
+- **IndexedDB offloading for chat images**: Created zero-dependency `imageStorage.js` utilizing browser IndexedDB (`loreforge_media_db`) with in-memory fallback for non-browser/testing environments. In `storageService.saveSessions()`, large Base64 data URLs are automatically stored in IndexedDB and replaced with lightweight `idb:img_{msgId}` keys in LocalStorage, preventing the 5MB browser quota from being exhausted and breaking chat persistence or brain writes. Added automated hydration on startup (`storageService.hydrateSessionImages`) and lazy image resolution in `MessageItem.jsx`. Added emergency quota recovery to `saveSessions` and `saveBrains`.
+- **Prompt cache fingerprinting**: Replaced the shallow cache key in `lmStudioClient.js` with `_computePromptFingerprint()`. The fingerprint now comprehensively includes character narrative fields, system prompts, user persona, active lorebook entries, brain memories, summaries, transient scene states, sampling settings, and conversation turn signatures. Stale prompt caching is eliminated.
+- **Multimodal history support for native vision**: Updated `ModelAdapter.format('lmstudio_native')` in `pipelineEngine.js` to process and supply all user turns containing images in chronological order instead of only the single latest turn, ensuring older images remain within model context.
+- **Token overview diagnostics field correction**: Corrected property access in `TokenOverviewBar.jsx`. Subconscious memory tokens now correctly evaluate `m.content` (with `m.text` fallback), and session summary tokens evaluate `s.summary` (with `s.content` and `s.text` fallback), resolving the bug where memory and summary token diagnostics reported 0.
+- **Fallback transport telemetry calculation**: Updated fallback OpenAI-compatible SSE streaming in `lmStudioClient.js` to request `stream_options: { include_usage: true }`. Telemetry now uses server-reported `completion_tokens` when provided by the backend, or precise token estimation over full content and reasoning text, eliminating inaccurate tokens/second and output token counts caused by counting raw SSE chunks.
+- **Safe image preview**: Eliminated `document.write()` in `MessageItem.jsx` for image popup preview, replacing it with secure DOM element creation (`document.createElement('img')`) with zero external execution or markup injection risk.
+- **Verification**: Added 3 automated coherence checks in `scripts/verify-coherence.mjs` (45 total checks passing); `npm run lint` passed with zero errors.
+
 ## 2026-09-18 — Correctness fixes: session persistence flags, conversation token budget, and stream race condition
 
 - **Session persistence flags**: Preserved `control`, `failed`, and `complete` message properties in `storageService.saveSessions()` and `getSessions()`. Incomplete generations, connection error messages, and synthetic control commands are now reliably excluded from memory learning after browser reloads.

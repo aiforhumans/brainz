@@ -39,16 +39,16 @@ export function TokenOverviewBar({
   const stats = useMemo(() => {
     // Stored memories
     const totalMemories = memoriesList.length
-    const totalMemoryTokens = memoriesList.reduce((acc, m) => acc + estimateTokens(m.text || ''), 0)
+    const totalMemoryTokens = memoriesList.reduce((acc, m) => acc + estimateTokens(m.content || m.text || ''), 0)
 
     // Active memories in prompt
     const selectedMemories = promptPipeline?.selectedMemories || []
-    const selectedMemoryTokens = selectedMemories.reduce((acc, m) => acc + estimateTokens(m.text || ''), 0)
+    const selectedMemoryTokens = selectedMemories.reduce((acc, m) => acc + estimateTokens(m.content || m.text || ''), 0)
     const selectedMemoryIds = new Set(selectedMemories.map((m) => m.id))
 
     // Summaries
     const totalSummaries = summariesList.length
-    const totalSummaryTokens = summariesList.reduce((acc, s) => acc + estimateTokens(s.text || ''), 0)
+    const totalSummaryTokens = summariesList.reduce((acc, s) => acc + estimateTokens(s.summary || s.content || s.text || ''), 0)
     const activeSummariesCount = Math.min(3, summariesList.filter((s) => s.status === 'established').length)
 
     // Lorebook
@@ -399,7 +399,7 @@ export function TokenOverviewBar({
                 {memoriesList.length > 0 ? (
                   <div className="token-memory-items-list">
                     {memoriesList.map((m) => {
-                      const tokens = estimateTokens(m.text || '')
+                      const tokens = estimateTokens(m.content || m.text || '')
                       const isActive = stats.selectedMemoryIds.has(m.id)
                       const category = m.category || 'preferences'
                       const confPct = Math.round((m.confidence || 0.8) * 100)
@@ -425,7 +425,7 @@ export function TokenOverviewBar({
                               </span>
                             )}
                           </div>
-                          <div className="token-memory-text">{m.text}</div>
+                          <div className="token-memory-text">{m.content || m.text}</div>
                         </div>
                       )
                     })}

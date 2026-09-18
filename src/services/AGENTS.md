@@ -11,7 +11,8 @@ Own LM Studio requests, prompt construction, evidence-based memory transformatio
 - `promptService.js`: shared dialogue/design rules (condensed), character template, output schemas, continuity rules, and the actual chat/Brain preview prompt builder.
 - `pipelineEngine.js`: SceneStateManager, TokenBudgetManager (adaptive budget allocation), MemoryConflictEngine, HybridLoreRetriever, ModelAdapter, and StructuredPromptCompiler (merged behavior+continuity section).
 - `brainService.js`: version 3 brain model, migration normalization, evidence fingerprints, invalidation, relevance selection (with fast-path early return), transcript chunking (10,000 chars / 20 messages), and correction application. No persistence or request scheduling.
-- `storageService.js`: all browser storage access and legacy import migration.
+- `storageService.js`: all browser storage access, image offloading coordination, quota recovery, and legacy import migration.
+- `imageStorage.js`: native IndexedDB object store (`loreforge_media_db`) for offloading heavy Base64 chat image attachments with an in-memory fallback for non-browser/testing environments.
 - `defaultCharacters.js`: Laura/Esther presets and exact old field snapshots used solely to upgrade untouched defaults.
 
 ## Local Contracts

@@ -1,6 +1,6 @@
 import { buildChatPrompt, buildCompiledPromptPipeline, CHARACTER_DESIGN_RULES, CHARACTER_SCHEMA, LEARNING_SCHEMA, validateCharacterCard } from './promptService.js'
 import { createBrain, cardContext, fingerprint, reconcileBrain, sessionFingerprint, sessionChunks, applyLearningResult, validateLearningResult, selectMemories } from './brainService.js'
-import { ModelAdapter } from './pipelineEngine.js'
+import { ModelAdapter, estimateTokens } from './pipelineEngine.js'
 
 // LM Studio REST API Client (OpenAI-compatible and native v1 endpoints)
 
@@ -583,7 +583,33 @@ export class LMStudioClient {
   }
 
   // Lightweight prompt cache: avoids rebuilding identical system prompts on regenerations
-  _promptCache = { fingerprint: null, systemPrompt: null }
+  _promptCache = { fingerprint: null, systemPrompt: null, fittedHistory: null }
+
+  _computePromptFingerprint({ character, userPersona, lorebook, messages, mature, brain, settings }) {
+    return fingerprint([
+      character?.id,
+      character?.name,
+      character?.personality,
+      character?.scenario,
+      character?.systemPrompt,
+      character?.nsfw,
+      userPersona?.name,
+      userPersona?.title,
+      userPersona?.bio,
+      (lorebook || []).map(l => [l.id, l.key, l.content, Boolean(l.enabled)]),
+      mature,
+      settings?.contextLength,
+      settings?.maxTokens,
+      brain?.revision || 0,
+      brain?.sceneState || null,
+      (brain?.memories || []).map(m => [m.id, m.content, m.status, m.confidence]),
+      (brain?.sessionSummaries || []).map(s => [s.sessionId, s.summary, s.status]),
+      (messages || []).length,
+      messages?.[messages.length - 1]?.id,
+      messages?.[messages.length - 1]?.content,
+      (messages || []).slice(-4).map(m => [m.id, m.role, m.content]),
+    ])
+  }
 
   // Stream chat completion using Server-Sent Events (SSE)
   // Supports native LM Studio streaming events (/api/v1/chat) with automatic fallback to OpenAI /v1/chat/completions
@@ -600,9 +626,17 @@ export class LMStudioClient {
     onStatus,
     onEnd,
   }) {
-    // 1. Prepare system message and pipeline compilation (with fingerprint cache)
+    // 1. Prepare system message and pipeline compilation (with robust fingerprint cache)
     const isNsfwMode = Boolean(character?.nsfw || settings?.nsfwMode)
-    const cacheKey = `${character?.id}|${userPersona?.name}|${brain?.revision ?? 0}|${messages.length}|${brain?.memories?.length ?? 0}|${isNsfwMode}`
+    const cacheKey = this._computePromptFingerprint({
+      character,
+      userPersona,
+      lorebook,
+      messages,
+      mature: isNsfwMode,
+      brain,
+      settings,
+    })
     let systemPrompt
     let fittedHistory
     if (this._promptCache.fingerprint === cacheKey) {
@@ -731,6 +765,7 @@ export class LMStudioClient {
       presence_penalty: safeNum(settings.presencePenalty, 0.0),
       frequency_penalty: safeNum(settings.frequencyPenalty, 0.0),
       stream: true,
+      stream_options: { include_usage: true },
     }
 
     onStatus?.({ stage: 'generating', progress: null, label: 'Generating response...' })
@@ -766,7 +801,7 @@ export class LMStudioClient {
     let buffer = ''
     const startTime = performance.now()
     let firstTokenTime = null
-    let tokenCount = 0
+    let serverReportedTokens = null
 
     try {
       while (true) {
@@ -787,6 +822,9 @@ export class LMStudioClient {
             const dataStr = trimmed.slice(6).trim()
             try {
               const parsed = JSON.parse(dataStr)
+              if (parsed.usage?.completion_tokens) {
+                serverReportedTokens = parsed.usage.completion_tokens
+              }
               const choice = parsed.choices?.[0]
               
               // Check for reasoning content (supported by deepseek-r1 and some OpenAI compatible models)
@@ -802,7 +840,6 @@ export class LMStudioClient {
                 if (firstTokenTime === null) {
                   firstTokenTime = performance.now()
                 }
-                tokenCount += 1
                 fullText += delta
                 onChunk?.(delta, fullText)
                 onStatus?.({ stage: 'message', progress: null, label: 'Generating response...' })
@@ -820,12 +857,18 @@ export class LMStudioClient {
     const endTime = performance.now()
     const totalSeconds = (endTime - startTime) / 1000
     const ttftSeconds = firstTokenTime ? (firstTokenTime - startTime) / 1000 : 0
-    const tokPerSec = totalSeconds > 0 ? tokenCount / totalSeconds : 0
+    const genDurationSeconds = firstTokenTime ? Math.max((endTime - firstTokenTime) / 1000, 0.01) : totalSeconds
+
+    const finalTokens = typeof serverReportedTokens === 'number' && serverReportedTokens > 0
+      ? serverReportedTokens
+      : Math.max(1, estimateTokens(fullText) + (fullReasoning ? estimateTokens(fullReasoning) : 0))
+
+    const tokPerSec = genDurationSeconds > 0 ? finalTokens / genDurationSeconds : 0
 
     const computedStats = {
-      tokens_per_second: tokPerSec,
-      time_to_first_token_seconds: ttftSeconds,
-      total_output_tokens: tokenCount,
+      tokens_per_second: Math.round(tokPerSec * 10) / 10,
+      time_to_first_token_seconds: Math.round(ttftSeconds * 100) / 100,
+      total_output_tokens: finalTokens,
     }
 
     onEnd?.({

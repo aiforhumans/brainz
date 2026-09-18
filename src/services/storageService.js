@@ -1,6 +1,9 @@
 // Storage and persistence service for LoreForge
 import { DEFAULT_CHARACTERS, migrateDefaultCharacter } from './defaultCharacters.js'
 import { createBrain, normalizeBrain } from './brainService.js'
+import { imageStorage } from './imageStorage.js'
+
+export { imageStorage }
 
 const STORAGE_KEYS = {
   CHARACTERS: 'loreforge_characters_v1',
@@ -208,8 +211,8 @@ export const storageService = {
   },
 
   saveSessions(sessions) {
+    let sanitized = {}
     try {
-      const sanitized = {}
       for (const [charId, charSessions] of Object.entries(sessions || {})) {
         if (!Array.isArray(charSessions)) continue
         sanitized[charId] = charSessions.map((s) => ({
@@ -218,31 +221,97 @@ export const storageService = {
           createdAt: typeof s.createdAt === 'number' ? s.createdAt : Date.now(),
           updatedAt: typeof s.updatedAt === 'number' ? s.updatedAt : Date.now(),
           messages: Array.isArray(s.messages)
-            ? s.messages.map((m) => ({
-                id: String(m.id || ''),
-                role: m.role === 'assistant' ? 'assistant' : (m.role === 'system' ? 'system' : 'user'),
-                content: typeof m.content === 'string' ? m.content : (m.content ? String(m.content.text || m.content.content || '') : ''),
-                reasoningContent: typeof m.reasoningContent === 'string' ? m.reasoningContent : '',
-                image: typeof m.image === 'string' ? m.image : null,
-                complete: m.complete !== undefined ? Boolean(m.complete) : true,
-                failed: Boolean(m.failed),
-                control: Boolean(m.control),
-                stats: m.stats && typeof m.stats === 'object' ? {
-                  tokens_per_second: Number(m.stats.tokens_per_second) || 0,
-                  time_to_first_token_seconds: Number(m.stats.time_to_first_token_seconds) || 0,
-                  total_output_tokens: Number(m.stats.total_output_tokens) || 0,
-                } : null,
-                createdAt: typeof m.createdAt === 'number' ? m.createdAt : Date.now(),
-                model: typeof m.model === 'string' ? m.model : null,
-                responseId: typeof m.responseId === 'string' ? m.responseId : null,
-              }))
+            ? s.messages.map((m) => {
+                let imageRef = typeof m.image === 'string' ? m.image : null
+                if (imageRef && imageRef.startsWith('data:image/')) {
+                  const imageKey = `idb:img_${m.id || Date.now()}`
+                  imageStorage.saveImage(imageKey, imageRef).catch((err) => {
+                    console.warn('Could not persist image to IndexedDB', err)
+                  })
+                  imageRef = imageKey
+                }
+                return {
+                  id: String(m.id || ''),
+                  role: m.role === 'assistant' ? 'assistant' : (m.role === 'system' ? 'system' : 'user'),
+                  content: typeof m.content === 'string' ? m.content : (m.content ? String(m.content.text || m.content.content || '') : ''),
+                  reasoningContent: typeof m.reasoningContent === 'string' ? m.reasoningContent : '',
+                  image: imageRef,
+                  complete: m.complete !== undefined ? Boolean(m.complete) : true,
+                  failed: Boolean(m.failed),
+                  control: Boolean(m.control),
+                  stats: m.stats && typeof m.stats === 'object' ? {
+                    tokens_per_second: Number(m.stats.tokens_per_second) || 0,
+                    time_to_first_token_seconds: Number(m.stats.time_to_first_token_seconds) || 0,
+                    total_output_tokens: Number(m.stats.total_output_tokens) || 0,
+                  } : null,
+                  createdAt: typeof m.createdAt === 'number' ? m.createdAt : Date.now(),
+                  model: typeof m.model === 'string' ? m.model : null,
+                  responseId: typeof m.responseId === 'string' ? m.responseId : null,
+                }
+              })
             : [],
         }))
       }
       localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(sanitized))
     } catch (e) {
       console.error('Failed to save sessions', e)
+      // Emergency recovery: if quota exceeded, strip any legacy/large images to avoid breaking chat persistence
+      try {
+        const stripped = JSON.parse(JSON.stringify(sanitized))
+        for (const charSessions of Object.values(stripped)) {
+          if (!Array.isArray(charSessions)) continue
+          for (const s of charSessions) {
+            if (!Array.isArray(s.messages)) continue
+            for (const msg of s.messages) {
+              if (msg.image && !msg.image.startsWith('idb:')) {
+                msg.image = null
+              }
+            }
+          }
+        }
+        localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(stripped))
+      } catch (quotaErr) {
+        console.error('Emergency quota recovery for sessions failed', quotaErr)
+      }
     }
+  },
+
+  async hydrateSessionImages(sessions) {
+    if (!sessions || typeof sessions !== 'object') return null
+    let anyHydrated = false
+    const hydratedSessions = {}
+    for (const [charId, charSessions] of Object.entries(sessions)) {
+      if (!Array.isArray(charSessions)) {
+        hydratedSessions[charId] = charSessions
+        continue
+      }
+      const updatedCharSessions = await Promise.all(
+        charSessions.map(async (session) => {
+          if (!Array.isArray(session.messages)) return session
+          let sessionChanged = false
+          const updatedMessages = await Promise.all(
+            session.messages.map(async (msg) => {
+              if (msg.image && typeof msg.image === 'string' && msg.image.startsWith('idb:')) {
+                try {
+                  const dataUrl = await imageStorage.getImage(msg.image)
+                  if (dataUrl) {
+                    sessionChanged = true
+                    anyHydrated = true
+                    return { ...msg, image: dataUrl }
+                  }
+                } catch (err) {
+                  console.warn('Failed to hydrate image for message', msg.id, err)
+                }
+              }
+              return msg
+            })
+          )
+          return sessionChanged ? { ...session, messages: updatedMessages } : session
+        })
+      )
+      hydratedSessions[charId] = updatedCharSessions
+    }
+    return anyHydrated ? hydratedSessions : null
   },
 
   getActiveSessionId(charId) {
@@ -380,7 +449,19 @@ export const storageService = {
   },
 
   saveBrains(brains) {
-    localStorage.setItem(STORAGE_KEYS.BRAINS, JSON.stringify(brains || {}))
+    try {
+      localStorage.setItem(STORAGE_KEYS.BRAINS, JSON.stringify(brains || {}))
+    } catch (e) {
+      console.error('Failed to save brains to localStorage', e)
+      try {
+        // Purge deprecated storage keys to recover critical quota
+        localStorage.removeItem(STORAGE_KEYS.LEGACY_BRAINS)
+        localStorage.removeItem(STORAGE_KEYS.BRAIN)
+        localStorage.setItem(STORAGE_KEYS.BRAINS, JSON.stringify(brains || {}))
+      } catch (recoveryErr) {
+        console.error('Emergency brain recovery failed due to storage quota', recoveryErr)
+      }
+    }
   },
 
   getBrain(charId = '', charName = '', characterData = null) {

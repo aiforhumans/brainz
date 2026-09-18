@@ -174,6 +174,19 @@ export default function App() {
     })
   }, [activeCharacter?.id, activeCharacter?.greeting, activeCharacter?.name, userPersona?.name])
 
+  // Hydrate image attachments stored in IndexedDB into session state on startup
+  useEffect(() => {
+    let cancelled = false
+    storageService.hydrateSessionImages(sessions).then((hydrated) => {
+      if (!cancelled && hydrated) {
+        setSessions((prev) => ({ ...prev, ...hydrated }))
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Check LM Studio health & fetch models on mount
   const checkHealthAndModels = useCallback(async () => {
     setConnectionStatus((prev) => ({ ...prev, isChecking: true }))

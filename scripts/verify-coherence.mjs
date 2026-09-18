@@ -553,4 +553,84 @@ await check('buildCompiledPromptPipeline coordinates history budgeting and bound
   assert.equal(pipeline.fittedHistory[pipeline.fittedHistory.length - 1].id, 'turn-39')
 })
 
+await check('ModelAdapter.format(lmstudio_native) includes all attached images across history', () => {
+  const messagesWithImages = [
+    { id: 'm1', role: 'user', content: 'Look at this first picture', image: 'data:image/png;base64,AAA' },
+    { id: 'm2', role: 'assistant', content: 'I see it!' },
+    { id: 'm3', role: 'user', content: 'And this second picture', image: 'data:image/png;base64,BBB' },
+  ]
+  const formatted = ModelAdapter.format({
+    formatType: 'lmstudio_native',
+    systemPrompt: 'You are an AI.',
+    messages: messagesWithImages,
+  })
+  assert.ok(Array.isArray(formatted.input))
+  const images = formatted.input.filter(item => item.type === 'image')
+  assert.equal(images.length, 2)
+  assert.equal(images[0].data_url, 'data:image/png;base64,AAA')
+  assert.equal(images[1].data_url, 'data:image/png;base64,BBB')
+})
+
+await check('storageService offloads base64 images to IndexedDB and hydrates them', async () => {
+  const fakeSession = {
+    alex: [{
+      id: 'sess-img',
+      title: 'Image Session',
+      createdAt: 100,
+      updatedAt: 100,
+      messages: [
+        { id: 'm-img1', role: 'user', content: 'Picture 1', image: 'data:image/png;base64,VERYLONGBASE64STRING1' },
+        { id: 'm-img2', role: 'assistant', content: 'Got it' },
+        { id: 'm-img3', role: 'user', content: 'Picture 2', image: 'data:image/png;base64,VERYLONGBASE64STRING2' },
+      ],
+    }],
+  }
+  storageService.saveSessions(fakeSession)
+  const savedJson = storageService.getSessions()
+  const savedMsgs = savedJson.alex[0].messages
+
+  assert.ok(savedMsgs[0].image.startsWith('idb:img_'))
+  assert.ok(savedMsgs[2].image.startsWith('idb:img_'))
+  assert.doesNotMatch(savedMsgs[0].image, /base64/)
+
+  const hydrated = await storageService.hydrateSessionImages(savedJson)
+  assert.ok(hydrated)
+  assert.equal(hydrated.alex[0].messages[0].image, 'data:image/png;base64,VERYLONGBASE64STRING1')
+  assert.equal(hydrated.alex[0].messages[2].image, 'data:image/png;base64,VERYLONGBASE64STRING2')
+})
+
+await check('lmStudioClient._computePromptFingerprint changes when persona, character, or memories change', () => {
+  const baseParams = {
+    character: { id: 'alex', name: 'Alex', systemPrompt: 'System', personality: 'Calm' },
+    userPersona: { name: 'Sam', bio: 'Gardener' },
+    lorebook: [{ key: 'castle', content: 'Old castle' }],
+    brain: { memories: [{ id: 'mem-1', content: 'Likes tea' }], sceneState: { location: 'Garden' } },
+    settings: { temperature: 0.7, topP: 0.9 },
+    messages: [{ id: 'msg-1', role: 'user', content: 'Hello' }],
+  }
+
+  const fpBase = client._computePromptFingerprint(baseParams)
+  assert.ok(fpBase)
+
+  assert.equal(client._computePromptFingerprint(baseParams), fpBase)
+
+  const fpNewMem = client._computePromptFingerprint({
+    ...baseParams,
+    brain: { memories: [{ id: 'mem-1', content: 'Likes coffee now' }], sceneState: { location: 'Garden' } },
+  })
+  assert.notEqual(fpNewMem, fpBase)
+
+  const fpNewChar = client._computePromptFingerprint({
+    ...baseParams,
+    character: { ...baseParams.character, personality: 'Excitable' },
+  })
+  assert.notEqual(fpNewChar, fpBase)
+
+  const fpNewPersona = client._computePromptFingerprint({
+    ...baseParams,
+    userPersona: { ...baseParams.userPersona, name: 'Alice' },
+  })
+  assert.notEqual(fpNewPersona, fpBase)
+})
+
 console.log(`\n${passed} coherence checks passed.`)

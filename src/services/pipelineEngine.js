@@ -546,13 +546,15 @@ export class ModelAdapter {
         transcriptLines.push(`${charName}:`)
         const transcriptString = transcriptLines.join('\n\n')
 
-        const latestUserWithImage = [...messages].reverse().find(m => m.role === 'user' && m.image)
         let input = transcriptString
-        if (visionSupported && latestUserWithImage?.image) {
-          input = [
-            { type: 'text', content: transcriptString },
-            { type: 'image', data_url: latestUserWithImage.image },
-          ]
+        if (visionSupported) {
+          const userMessagesWithImages = messages.filter(m => m.role === 'user' && m.image)
+          if (userMessagesWithImages.length > 0) {
+            input = [
+              { type: 'text', content: transcriptString },
+              ...userMessagesWithImages.map(m => ({ type: 'image', data_url: m.image })),
+            ]
+          }
         }
 
         return {

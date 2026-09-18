@@ -7,7 +7,7 @@ import { SettingsModal } from './components/SettingsModal'
 import { UserPersonaModal } from './components/UserPersonaModal'
 import { LorebookModal } from './components/LorebookModal'
 import { BrainModal } from './components/BrainModal'
-import { storageService } from './services/storageService'
+import { storageService, imageStorage } from './services/storageService'
 import { createLMStudioClient } from './services/lmStudioClient'
 import { DEFAULT_CHARACTERS } from './services/defaultCharacters'
 import { createBrain, normalizeBrain, reconcileBrain, cardContext, fingerprint, learningFingerprint, memorySignature, isAutoLearnDue } from './services/brainService'
@@ -208,6 +208,18 @@ export default function App() {
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Pre-warm character and user avatars from IndexedDB into memory cache
+  useEffect(() => {
+    characters.forEach((char) => {
+      if (char.avatar && char.avatar.startsWith('idb:')) {
+        imageStorage.getImage(char.avatar).catch(() => {})
+      }
+    })
+    if (userPersona?.avatar && userPersona.avatar.startsWith('idb:')) {
+      imageStorage.getImage(userPersona.avatar).catch(() => {})
+    }
+  }, [characters, userPersona?.avatar])
+
   // Check LM Studio health & fetch models on mount
   const checkHealthAndModels = useCallback(async () => {
     setConnectionStatus((prev) => ({ ...prev, isChecking: true }))
@@ -287,6 +299,10 @@ export default function App() {
     invalidateLearning(id)
     pendingLearningRef.current.delete(id)
     storageService.markCharacterDeleted(id)
+    const charToDelete = characters.find((c) => c.id === id)
+    if (charToDelete?.avatar && charToDelete.avatar.startsWith('idb:')) {
+      imageStorage.deleteImage(charToDelete.avatar).catch(() => {})
+    }
     const charSessions = sessions[id] || []
     storageService.cleanupSessionsImages(charSessions)
     setSessions((prev) => {

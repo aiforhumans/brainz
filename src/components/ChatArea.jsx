@@ -13,6 +13,7 @@ import {
 import { MessageItem } from './MessageItem'
 import { ChatInput } from './ChatInput'
 import { TokenOverviewBar } from './TokenOverviewBar'
+import { AvatarImage } from './AvatarImage'
 
 export function ChatArea({
   character,
@@ -93,16 +94,13 @@ export function ChatArea({
       <div className="chat-header">
         <div className="chat-header-info">
           <div className="chat-header-avatar">
-            {character.avatar ? (
-              <img src={character.avatar} alt={character.name} />
-            ) : (
-              <div
-                className="avatar-fallback-inner"
-                style={{ background: character.avatarFallbackBg || undefined }}
-              >
-                {character.name.charAt(0)}
-              </div>
-            )}
+            <AvatarImage
+              src={character.avatar}
+              alt={character.name}
+              fallbackContent={character.name?.charAt(0)}
+              fallbackStyle={{ background: character.avatarFallbackBg || undefined }}
+              isNsfw={character.nsfw}
+            />
           </div>
           <div className="chat-header-text">
             <h2>

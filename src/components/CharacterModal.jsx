@@ -10,18 +10,16 @@ import {
   Flame,
   Check,
   AlertCircle,
-  RotateCcw,
   Upload,
   Plus,
   ChevronDown,
   ChevronUp,
   Image as ImageIcon,
-  Layers,
   MessageSquare,
   User,
-  Zap,
 } from 'lucide-react'
 import { imageStorage } from '../services/imageStorage.js'
+import { AvatarImage } from './AvatarImage'
 import { formatRoleplayContent } from '../utils/roleplayFormatter.jsx'
 import { replaceMacros } from '../utils/macroUtils.js'
 import { estimateTokens } from '../services/pipelineEngine.js'
@@ -61,30 +59,10 @@ export function CharacterModal({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [hasRestoredDraft, setHasRestoredDraft] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
-  const [resolvedAvatar, setResolvedAvatar] = useState(null)
   const [activePreviewGreetingIndex, setActivePreviewGreetingIndex] = useState(0)
   const initialSnapshotRef = useRef('')
 
   useEffect(() => () => generationControllerRef.current?.abort(), [isOpen, character, userPersona])
-
-  // Resolve IndexedDB avatar dataUrl for preview
-  useEffect(() => {
-    if (!formData.avatar) {
-      setResolvedAvatar(null)
-      return
-    }
-    if (!formData.avatar.startsWith('idb:')) {
-      setResolvedAvatar(formData.avatar)
-      return
-    }
-    let cancelled = false
-    imageStorage.getImage(formData.avatar).then((dataUrl) => {
-      if (!cancelled && dataUrl) {
-        setResolvedAvatar(dataUrl)
-      }
-    })
-    return () => { cancelled = true }
-  }, [formData.avatar])
 
   // Populate form on open or character switch
   useEffect(() => {
@@ -793,11 +771,12 @@ Behave like: [Emotional state, physical reactions & speech style]`
                   }}
                 >
                   <div className="avatar-preview-thumb">
-                    {resolvedAvatar ? (
-                      <img src={resolvedAvatar} alt="Avatar preview" />
-                    ) : (
-                      <ImageIcon size={24} className="icon-muted" />
-                    )}
+                    <AvatarImage
+                      src={formData.avatar}
+                      alt="Avatar preview"
+                      fallbackContent={<ImageIcon size={24} className="icon-muted" />}
+                      fallbackClassName=""
+                    />
                   </div>
 
                   <div className="avatar-upload-info">
@@ -1049,13 +1028,13 @@ Behave like: [Emotional state, physical reactions & speech style]`
             <div className="preview-card-box">
               <div className="preview-card-header">
                 <div className="preview-card-avatar">
-                  {resolvedAvatar ? (
-                    <img src={resolvedAvatar} alt={formData.name || 'Preview'} />
-                  ) : (
-                    <div className="avatar-fallback-inner">
-                      {formData.name ? formData.name.charAt(0) : '?'}
-                    </div>
-                  )}
+                  <AvatarImage
+                    src={formData.avatar}
+                    alt={formData.name || 'Preview'}
+                    fallbackContent={formData.name ? formData.name.charAt(0) : '?'}
+                    fallbackStyle={{ background: formData.avatarFallbackBg || undefined }}
+                    isNsfw={formData.nsfw}
+                  />
                 </div>
                 <div className="preview-card-info">
                   <div className="preview-card-name">

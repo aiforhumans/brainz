@@ -20,6 +20,7 @@ import {
 import { formatRoleplayContent } from '../utils/roleplayFormatter'
 import { replaceMacros } from '../utils/macroUtils.js'
 import { imageStorage } from '../services/imageStorage.js'
+import { AvatarImage } from './AvatarImage'
 
 const STEER_CHIPS = [
   'Describe surroundings & atmosphere',
@@ -173,22 +174,20 @@ export function MessageItem({
     <div className={`message-row ${message.role}`}>
       <div className="message-avatar-wrap">
         {isUser ? (
-          userPersona?.avatar ? (
-            <img src={userPersona.avatar} alt="You" />
-          ) : (
-            <div className="avatar-fallback-inner avatar-fallback-user">
-              <User size={20} />
-            </div>
-          )
-        ) : character.avatar ? (
-          <img src={character.avatar} alt={character.name} />
+          <AvatarImage
+            src={userPersona?.avatar}
+            alt="You"
+            isUser
+            fallbackContent={<User size={20} />}
+          />
         ) : (
-          <div
-            className="avatar-fallback-inner"
-            style={{ background: character.avatarFallbackBg || undefined }}
-          >
-            {character.name.charAt(0)}
-          </div>
+          <AvatarImage
+            src={character.avatar}
+            alt={character.name}
+            fallbackContent={character.name?.charAt(0)}
+            fallbackStyle={{ background: character.avatarFallbackBg || undefined }}
+            isNsfw={character.nsfw}
+          />
         )}
       </div>
 

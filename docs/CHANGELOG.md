@@ -8,6 +8,8 @@
 - **Direct Avatar Drag & Drop + Local File Upload**:
   - Replaced external URL dependency with an interactive drag-and-drop zone supporting local image file selection and drop.
   - Image files are persisted directly into IndexedDB via `imageStorage.saveImage()`, avoiding LocalStorage 5MB quota exhaustion, with instant preview resolution via `imageStorage.resolveImage()`.
+  - Built unified `AvatarImage.jsx` component that seamlessly resolves `idb:avatar_*` keys across the chat header, message turns, sidebar character list, brain modal, and studio preview card with zero-flicker synchronous in-memory cache lookup (`imageStorage.getCachedImage`) and graceful fallback rendering.
+  - Added character and persona avatar pre-warming and cleanup in `App.jsx`.
 - **Live Card & Token Breakdown Preview**:
   - Sticky right panel displays a live preview card with resolved avatar, name, subtitle, and 18+ badge.
   - Real-time token breakdown meter tracks Persona, Scenario/World, Greetings, and Directives individually against their token budgets.

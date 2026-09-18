@@ -21,6 +21,7 @@ import {
   Tag,
   RotateCcw,
 } from 'lucide-react'
+import { AvatarImage } from './AvatarImage'
 
 export function BrainModal({
   isOpen,
@@ -307,7 +308,12 @@ export function BrainModal({
                 <h3 style={{ margin: 0 }}>AI Brain Data Bank</h3>
                 <span className="badge badge-purple" style={{ fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '2px 8px' }}>
                   {character?.avatar && (
-                    <img src={character.avatar} alt="" style={{ width: '15px', height: '15px', borderRadius: '50%', objectFit: 'cover' }} />
+                    <AvatarImage
+                      src={character.avatar}
+                      alt=""
+                      className="brain-char-avatar-mini"
+                      fallbackContent={character.name?.charAt(0)}
+                    />
                   )}
                   <span>{character?.name ? `${character.name}'s Mind` : 'Active Character Mind'}</span>
                 </span>

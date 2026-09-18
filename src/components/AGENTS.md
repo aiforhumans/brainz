@@ -25,6 +25,7 @@ All React JSX components that render the LoreForge UI. Each file owns one named 
 | `LorebookModal.jsx` | `LorebookModal` | Lorebook entries: keyword triggers, content, enable/disable |
 | `BrainModal.jsx` | `BrainModal` | Per-character memory review, manual profile, evidence/status display, import/export, learning controls and full prompt preview |
 | `TokenOverviewBar.jsx` | `TokenOverviewBar` | Main window bottom footer: real-time memory tokens, lore tokens, chat history, context utilization progress bar, and expandable diagnostics drawer |
+| `AvatarImage.jsx` | `AvatarImage` | Asynchronous avatar renderer supporting IndexedDB keys, remote URLs, error recovery, and initials/user fallback |
 
 ## Local Contracts
 

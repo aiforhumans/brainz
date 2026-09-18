@@ -7,6 +7,7 @@ import {
   Flame,
   Download,
 } from 'lucide-react'
+import { AvatarImage } from './AvatarImage'
 
 export function Sidebar({
   characters,
@@ -126,26 +127,15 @@ export function Sidebar({
                 onClick={() => onSelectCharacter(char.id)}
               >
                 <div className="character-avatar-wrap">
-                  {char.avatar ? (
-                    <img
-                      src={char.avatar}
-                      alt={char.name}
-                      className="character-avatar-img"
-                      onError={(e) => {
-                        e.target.style.display = 'none'
-                        e.target.nextSibling.style.display = 'flex'
-                      }}
-                    />
-                  ) : null}
-                  <div
-                    className={`character-avatar-fallback ${char.nsfw ? 'nsfw' : ''}`}
-                    style={{
-                      background: char.avatarFallbackBg || undefined,
-                      display: char.avatar ? 'none' : 'flex',
-                    }}
-                  >
-                    {char.name.charAt(0).toUpperCase()}
-                  </div>
+                  <AvatarImage
+                    src={char.avatar}
+                    alt={char.name}
+                    className="character-avatar-img"
+                    fallbackClassName={`character-avatar-fallback ${char.nsfw ? 'nsfw' : ''}`}
+                    fallbackContent={char.name?.charAt(0).toUpperCase()}
+                    fallbackStyle={{ background: char.avatarFallbackBg || undefined }}
+                    isNsfw={char.nsfw}
+                  />
                 </div>
 
                 <div className="character-meta">

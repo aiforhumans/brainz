@@ -9,6 +9,8 @@ const DB_VERSION = 1
 const memoryFallback = new Map()
 // Track keys confirmed to be written in storage to avoid redundant writes
 const persistedKeys = new Set()
+// In-memory cache for resolved data URLs (avatars & images) for synchronous instant access
+const resolvedCache = new Map()
 
 function isIndexedDBAvailable() {
   return typeof window !== 'undefined' && typeof window.indexedDB !== 'undefined' && window.indexedDB !== null
@@ -37,6 +39,22 @@ export const imageStorage = {
     return persistedKeys.has(key) || memoryFallback.has(key)
   },
 
+  getCachedImage(key) {
+    if (!key) return null
+    if (typeof key !== 'string') return null
+    if (!key.startsWith('idb:')) return key
+    return resolvedCache.get(key) || memoryFallback.get(key) || null
+  },
+
+  async resolveImage(key) {
+    if (!key) return null
+    if (typeof key !== 'string') return null
+    if (!key.startsWith('idb:')) return key
+    const cached = this.getCachedImage(key)
+    if (cached) return cached
+    return this.getImage(key)
+  },
+
   async hasImage(key) {
     if (!key) return false
     if (this.isKeyPersisted(key)) return true
@@ -61,6 +79,7 @@ export const imageStorage = {
 
   async saveImage(key, dataUrl) {
     if (!key || !dataUrl) return false
+    resolvedCache.set(key, dataUrl)
     if (!isIndexedDBAvailable()) {
       memoryFallback.set(key, dataUrl)
       persistedKeys.add(key)
@@ -88,27 +107,42 @@ export const imageStorage = {
 
   async getImage(key) {
     if (!key) return null
+    if (typeof key !== 'string') return null
+    if (!key.startsWith('idb:')) return key
+    if (resolvedCache.has(key)) return resolvedCache.get(key)
     if (!isIndexedDBAvailable() || memoryFallback.has(key)) {
       const item = memoryFallback.get(key) || null
-      if (item) persistedKeys.add(key)
+      if (item) {
+        persistedKeys.add(key)
+        resolvedCache.set(key, item)
+      }
       return item
     }
     try {
       const db = await openDB()
-      return new Promise((resolve, reject) => {
+      return new Promise((resolve) => {
         const tx = db.transaction(STORE_NAME, 'readonly')
         const store = tx.objectStore(STORE_NAME)
         const req = store.get(key)
         req.onsuccess = () => {
           const result = req.result || memoryFallback.get(key) || null
-          if (result) persistedKeys.add(key)
+          if (result) {
+            persistedKeys.add(key)
+            resolvedCache.set(key, result)
+          }
           resolve(result)
         }
-        req.onerror = () => reject(req.error)
+        req.onerror = () => {
+          const fallback = memoryFallback.get(key) || null
+          if (fallback) resolvedCache.set(key, fallback)
+          resolve(fallback)
+        }
       })
     } catch (e) {
       console.warn('Failed to get image from IndexedDB:', e)
-      return memoryFallback.get(key) || null
+      const fallback = memoryFallback.get(key) || null
+      if (fallback) resolvedCache.set(key, fallback)
+      return fallback
     }
   },
 
@@ -116,6 +150,7 @@ export const imageStorage = {
     if (!key) return false
     persistedKeys.delete(key)
     memoryFallback.delete(key)
+    resolvedCache.delete(key)
     if (!isIndexedDBAvailable()) return true
     try {
       const db = await openDB()
@@ -137,6 +172,7 @@ export const imageStorage = {
     for (const key of validKeys) {
       persistedKeys.delete(key)
       memoryFallback.delete(key)
+      resolvedCache.delete(key)
     }
     if (!isIndexedDBAvailable()) return true
     try {

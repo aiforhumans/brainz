@@ -4168,5 +4168,13 @@ html, body, #root {
   color: var(--primary-hover);
 }
 
+.brain-char-avatar-mini {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+
 
 

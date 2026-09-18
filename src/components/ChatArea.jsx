@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react'
+import React, { useRef, useEffect, useState } from 'react'
 import {
   MessageSquarePlus,
   RotateCcw,
@@ -8,6 +8,7 @@ import {
   Sparkles,
   Layers,
   Flame,
+  ArrowDown,
 } from 'lucide-react'
 import { MessageItem } from './MessageItem'
 import { ChatInput } from './ChatInput'
@@ -31,6 +32,8 @@ export function ChatArea({
   onStopGeneration,
   onContinueGeneration,
   onRegenerate,
+  onSelectSwipe,
+  onDeleteSwipe,
   onEditMessage,
   onDeleteMessage,
   isStreaming,
@@ -47,11 +50,37 @@ export function ChatArea({
   promptPipeline,
 }) {
   const messagesEndRef = useRef(null)
+  const containerRef = useRef(null)
+  const [isScrolledUp, setIsScrolledUp] = useState(false)
+  const [unreadCount, setUnreadCount] = useState(0)
 
-  // Auto-scroll to bottom on new messages or stream chunks
+  // Track user scroll position: if scrolled up >80px from bottom, pause auto-scroll
+  const handleScroll = () => {
+    const el = containerRef.current
+    if (!el) return
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    if (distanceFromBottom > 80) {
+      setIsScrolledUp(true)
+    } else {
+      setIsScrolledUp(false)
+      setUnreadCount(0)
+    }
+  }
+
+  // Auto-scroll to bottom on new messages or stream chunks unless user scrolled up
   useEffect(() => {
+    if (!isScrolledUp) {
+      messagesEndRef.current?.scrollIntoView({ behavior: isStreaming ? 'auto' : 'smooth' })
+    } else if (isStreaming) {
+      setUnreadCount((prev) => prev + 1)
+    }
+  }, [messages, isStreaming, isScrolledUp])
+
+  const handleJumpToBottom = () => {
+    setIsScrolledUp(false)
+    setUnreadCount(0)
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, isStreaming])
+  }
 
   const characterSessions = sessions[character.id] || []
 
@@ -162,7 +191,7 @@ export function ChatArea({
       )}
 
       {/* Messages Scroll Container */}
-      <div className="messages-container">
+      <div className="messages-container" ref={containerRef} onScroll={handleScroll}>
         {/* Scenario Banner */}
         {character.scenario && (
           <div className="scenario-banner">
@@ -185,6 +214,9 @@ export function ChatArea({
               isLastAssistant={index === lastAssistantIndex && !isStreaming}
               isStreaming={isStreaming && index === messages.length - 1 && msg.role === 'assistant'}
               onRegenerate={onRegenerate}
+              onContinue={onContinueGeneration}
+              onSelectSwipe={onSelectSwipe}
+              onDeleteSwipe={onDeleteSwipe}
               onEditMessage={onEditMessage}
               onDeleteMessage={onDeleteMessage}
             />
@@ -212,6 +244,20 @@ export function ChatArea({
         )}
 
         <div ref={messagesEndRef} />
+
+        {/* Floating Jump to Latest Button */}
+        {isScrolledUp && (
+          <button
+            type="button"
+            className="jump-to-bottom-btn"
+            onClick={handleJumpToBottom}
+            title="Jump to latest message"
+          >
+            <ArrowDown size={14} />
+            <span>Jump to latest</span>
+            {unreadCount > 0 && <span className="jump-unread-badge">{unreadCount}</span>}
+          </button>
+        )}
       </div>
 
       {/* Input Box */}

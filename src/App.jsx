@@ -422,7 +422,7 @@ export default function App() {
   }
 
   // Core streaming executor for new messages and regenerations
-  const executeStreamingChat = useCallback(async (targetSessionId, assistantMsgId, promptMessages) => {
+  const executeStreamingChat = useCallback(async (targetSessionId, assistantMsgId, promptMessages, options = {}) => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort()
     }
@@ -434,6 +434,45 @@ export default function App() {
 
     setIsStreaming(true)
     setStreamingStatus({ stage: 'connecting', progress: null, label: 'Connecting to LM Studio...' })
+
+    const updateMsgWithSwipe = (m, updateFn) => {
+      if (m.id !== assistantMsgId) return m
+      const idx = typeof options?.targetSwipeIndex === 'number' ? options.targetSwipeIndex : (m.swipeIndex ?? 0)
+      const existingSwipes = Array.isArray(m.swipes) && m.swipes.length > 0
+        ? m.swipes.map((s) => ({ ...s }))
+        : [{
+            content: m.content || '',
+            reasoningContent: m.reasoningContent || '',
+            stats: m.stats || null,
+            model: m.model || null,
+            responseId: m.responseId || null,
+            createdAt: m.createdAt || Date.now(),
+          }]
+      while (existingSwipes.length <= idx) {
+        existingSwipes.push({
+          content: '',
+          reasoningContent: '',
+          stats: null,
+          model: null,
+          responseId: null,
+          createdAt: Date.now(),
+        })
+      }
+      const updatedSwipe = updateFn(existingSwipes[idx] || {})
+      existingSwipes[idx] = updatedSwipe
+      return {
+        ...m,
+        content: updatedSwipe.content !== undefined ? updatedSwipe.content : m.content,
+        reasoningContent: updatedSwipe.reasoningContent !== undefined ? updatedSwipe.reasoningContent : m.reasoningContent,
+        stats: updatedSwipe.stats !== undefined ? updatedSwipe.stats : m.stats,
+        model: updatedSwipe.model !== undefined ? updatedSwipe.model : m.model,
+        responseId: updatedSwipe.responseId !== undefined ? updatedSwipe.responseId : m.responseId,
+        swipes: existingSwipes,
+        swipeIndex: idx,
+        complete: updatedSwipe.complete !== undefined ? updatedSwipe.complete : m.complete,
+        failed: updatedSwipe.failed !== undefined ? updatedSwipe.failed : m.failed,
+      }
+    }
 
     try {
       await client.streamChat({
@@ -456,7 +495,10 @@ export default function App() {
             if (!targetSession) return prev
 
             const updatedMsgs = targetSession.messages.map((m) =>
-              m.id === assistantMsgId ? { ...m, reasoningContent: fullReasoning } : m
+              updateMsgWithSwipe(m, (sw) => ({
+                ...sw,
+                reasoningContent: fullReasoning,
+              }))
             )
 
             return {
@@ -469,13 +511,17 @@ export default function App() {
         },
         onChunk: (_delta, fullText) => {
           if (currentStreamIdRef.current !== streamId) return
+          const textWithPrefix = (options?.continuePrefix || '') + fullText
           setSessions((prev) => {
             const charSessions = prev[activeCharacter.id] || []
             const targetSession = charSessions.find((s) => s.id === targetSessionId)
             if (!targetSession) return prev
 
             const updatedMsgs = targetSession.messages.map((m) =>
-              m.id === assistantMsgId ? { ...m, content: fullText } : m
+              updateMsgWithSwipe(m, (sw) => ({
+                ...sw,
+                content: textWithPrefix,
+              }))
             )
 
             return {
@@ -488,11 +534,12 @@ export default function App() {
         },
         onEnd: ({ stats, responseId, modelInstanceId, fullContent, fullReasoning }) => {
           if (currentStreamIdRef.current !== streamId) return
+          const finalContent = (options?.continuePrefix || '') + (fullContent || '')
           // Persist the cadence per character, including regeneration/continuation replies.
           const current = latestRef.current
           const character = current.characters.find(c => c.id === activeCharacter.id)
           const target = current.sessions[activeCharacter.id]?.find(s => s.id === targetSessionId)
-          if (character && target?.messages.some(m => m.id === assistantMsgId) && fullContent?.trim()) {
+          if (character && target?.messages.some(m => m.id === assistantMsgId) && finalContent?.trim()) {
             const brain = current.brains[character.id] || createBrain(character, current.userPersona)
             handleSaveBrain({ ...brain, repliesSinceLearning: (brain.repliesSinceLearning || 0) + 1 }, character.id, { preservePending: true })
           }
@@ -502,18 +549,16 @@ export default function App() {
             if (!targetSession) return prev
 
             const updatedMsgs = targetSession.messages.map((m) =>
-              m.id === assistantMsgId
-                ? {
-                    ...m,
-                    content: fullContent || m.content,
-                    reasoningContent: fullReasoning || m.reasoningContent,
-                    complete: true,
-                    failed: false,
-                    stats: stats || m.stats,
-                    responseId: responseId || m.responseId,
-                    model: modelInstanceId || settings.model,
-                  }
-                : m
+              updateMsgWithSwipe(m, (sw) => ({
+                ...sw,
+                content: finalContent || sw.content,
+                reasoningContent: fullReasoning || sw.reasoningContent,
+                stats: stats || sw.stats,
+                responseId: responseId || sw.responseId,
+                model: modelInstanceId || settings.model,
+                complete: true,
+                failed: false,
+              }))
             )
 
             // Post-turn processing: Update ephemeral scene state and thread tracking in background
@@ -522,7 +567,7 @@ export default function App() {
               const charName = character?.name?.trim() || 'Character'
               const userName = current.userPersona?.name?.trim() || 'User'
               const existingScene = targetSession.sceneState || current.brains[character?.id]?.sceneState || null
-              const updatedScene = SceneStateManager.applyTurn(existingScene, lastUserTurn, fullContent, charName, userName)
+              const updatedScene = SceneStateManager.applyTurn(existingScene, lastUserTurn, finalContent, charName, userName)
 
               // Persist scene state into active brain
               if (character) {
@@ -556,16 +601,14 @@ export default function App() {
           if (!targetSession) return prev
 
           const updatedMsgs = targetSession.messages.map((m) =>
-            m.id === assistantMsgId
-              ? {
-                  ...m,
-                  failed: true,
-                  complete: false,
-                  content: m.content
-                    ? `${m.content}\n\n*[Connection error: ${err.message}]*`
-                    : `*[Error: ${err.message}. Ensure LM Studio is running and model is loaded.]*`,
-                }
-              : m
+            updateMsgWithSwipe(m, (sw) => ({
+              ...sw,
+              failed: true,
+              complete: false,
+              content: sw.content
+                ? `${sw.content}\n\n*[Connection error: ${err.message}]*`
+                : `*[Error: ${err.message}. Ensure LM Studio is running and model is loaded.]*`,
+            }))
           )
 
           const updatedSessions = {
@@ -619,6 +662,15 @@ export default function App() {
       reasoningContent: '',
       stats: null,
       createdAt: now,
+      swipes: [{
+        content: '',
+        reasoningContent: '',
+        stats: null,
+        model: null,
+        responseId: null,
+        createdAt: now,
+      }],
+      swipeIndex: 0,
     }
 
     const nextMessages = [...currentMessages, userMsg, assistantMsg]
@@ -626,7 +678,7 @@ export default function App() {
 
     // 3. Initiate SSE Streaming
     const messagesForPrompt = [...currentMessages, userMsg]
-    await executeStreamingChat(activeSessionId, assistantMsgId, messagesForPrompt)
+    await executeStreamingChat(activeSessionId, assistantMsgId, messagesForPrompt, { targetSwipeIndex: 0 })
   }, [input, attachedImage, isStreaming, currentMessages, updateCurrentSessionMessages, executeStreamingChat, activeSessionId])
 
   // Model Lifecycle: Load Model into VRAM
@@ -679,56 +731,170 @@ export default function App() {
     setStreamingStatus(null)
   }, [])
 
-  // Continue generation
-  const handleContinueGeneration = async () => {
-    if (isStreaming || currentMessages.length === 0) return
-
-    const continuePrompt = `*Continue your narrative and actions naturally without repeating yourself.*`
-    handleSendMessage(continuePrompt, true)
-  }
-
-  // Regenerate last assistant response
-  const handleRegenerate = useCallback(async () => {
+  // Continue / Lengthen generation on the current assistant response
+  const handleContinueGeneration = useCallback(async () => {
     if (isStreaming || currentMessages.length === 0) return
 
     const lastIdx = currentMessages.map((m) => m.role).lastIndexOf('assistant')
     if (lastIdx < 0) return
 
-    const now = Date.now()
-    // Slice out the last assistant message
+    const targetMsg = currentMessages[lastIdx]
+    const existingContent = targetMsg.content || ''
     const prunedMessages = currentMessages.slice(0, lastIdx)
-    const assistantMsgId = `msg-${now}`
-    const freshAssistantMsg = {
-      id: assistantMsgId,
-      role: 'assistant',
-      complete: false,
+
+    const continuePrompt = [
+      ...prunedMessages,
+      {
+        role: 'system',
+        content: `[Instruction: Continue your narrative and actions seamlessly from where you stopped. Pick up directly without repeating previous text.]`,
+      },
+    ]
+
+    await executeStreamingChat(activeSessionId, targetMsg.id, continuePrompt, {
+      continuePrefix: existingContent ? `${existingContent} ` : '',
+      targetSwipeIndex: targetMsg.swipeIndex ?? 0,
+    })
+  }, [isStreaming, currentMessages, executeStreamingChat, activeSessionId])
+
+  // Regenerate / Re-roll last assistant response into a new swipe (with optional steerDirective)
+  const handleRegenerate = useCallback(async (options = {}) => {
+    if (isStreaming || currentMessages.length === 0) return
+
+    const lastIdx = currentMessages.map((m) => m.role).lastIndexOf('assistant')
+    if (lastIdx < 0) return
+
+    const targetMsg = currentMessages[lastIdx]
+    const now = Date.now()
+
+    const existingSwipes = Array.isArray(targetMsg.swipes) && targetMsg.swipes.length > 0
+      ? targetMsg.swipes.map((s) => ({ ...s }))
+      : [{
+          content: targetMsg.content || '',
+          reasoningContent: targetMsg.reasoningContent || '',
+          stats: targetMsg.stats || null,
+          model: targetMsg.model || null,
+          responseId: targetMsg.responseId || null,
+          createdAt: targetMsg.createdAt || now,
+        }]
+
+    const newSwipe = {
       content: '',
       reasoningContent: '',
       stats: null,
+      model: null,
+      responseId: null,
       createdAt: now,
     }
 
-    const nextMessages = [...prunedMessages, freshAssistantMsg]
+    const newSwipes = [...existingSwipes, newSwipe]
+    const newIndex = newSwipes.length - 1
+
+    const updatedTargetMsg = {
+      ...targetMsg,
+      content: '',
+      reasoningContent: '',
+      stats: null,
+      complete: false,
+      failed: false,
+      swipes: newSwipes,
+      swipeIndex: newIndex,
+    }
+
+    const nextMessages = currentMessages.map((m, i) => (i === lastIdx ? updatedTargetMsg : m))
     updateCurrentSessionMessages(nextMessages)
 
-    await executeStreamingChat(activeSessionId, assistantMsgId, prunedMessages)
+    // Pruned messages: all messages leading up to this assistant message
+    const prunedMessages = currentMessages.slice(0, lastIdx)
+    const steerDirective = typeof options?.steerDirective === 'string' ? options.steerDirective.trim() : ''
+    const promptMessages = steerDirective
+      ? [
+          ...prunedMessages,
+          { role: 'system', content: `[Instruction for this response: ${steerDirective}]` },
+        ]
+      : prunedMessages
+
+    await executeStreamingChat(activeSessionId, targetMsg.id, promptMessages, { targetSwipeIndex: newIndex })
   }, [isStreaming, currentMessages, updateCurrentSessionMessages, executeStreamingChat, activeSessionId])
 
-  // Edit an existing message
-  const handleEditMessage = (messageId, newContent) => {
-    const updatedMsgs = currentMessages.map((m) =>
-      m.id === messageId ? { ...m, content: newContent } : m
-    )
+  // Select active swipe on a message
+  const handleSelectSwipe = useCallback((messageId, targetIndex) => {
+    if (isStreaming) return
+    const updatedMsgs = currentMessages.map((m) => {
+      if (m.id !== messageId || !Array.isArray(m.swipes) || m.swipes.length === 0) return m
+      const idx = Math.max(0, Math.min(targetIndex, m.swipes.length - 1))
+      const targetSwipe = m.swipes[idx]
+      if (!targetSwipe) return m
+      return {
+        ...m,
+        swipeIndex: idx,
+        content: targetSwipe.content || '',
+        reasoningContent: targetSwipe.reasoningContent || '',
+        stats: targetSwipe.stats || null,
+        model: targetSwipe.model || m.model,
+        responseId: targetSwipe.responseId || m.responseId,
+      }
+    })
     updateCurrentSessionMessages(updatedMsgs)
-  }
+  }, [isStreaming, currentMessages, updateCurrentSessionMessages])
 
   // Delete an existing message
-  const handleDeleteMessage = (messageId) => {
+  const handleDeleteMessage = useCallback((messageId) => {
     const msgToDelete = currentMessages.find((m) => m.id === messageId)
     if (msgToDelete) {
       storageService.cleanupMessageImages([msgToDelete])
     }
     const updatedMsgs = currentMessages.filter((m) => m.id !== messageId)
+    updateCurrentSessionMessages(updatedMsgs)
+  }, [currentMessages, updateCurrentSessionMessages])
+
+  // Delete a swipe on a message
+  const handleDeleteSwipe = useCallback((messageId, swipeIndexToDelete) => {
+    if (isStreaming) return
+    const targetMsg = currentMessages.find((m) => m.id === messageId)
+    if (!targetMsg) return
+
+    const swipes = Array.isArray(targetMsg.swipes) ? targetMsg.swipes : []
+    if (swipes.length <= 1) {
+      handleDeleteMessage(messageId)
+      return
+    }
+
+    const newSwipes = swipes.filter((_, i) => i !== swipeIndexToDelete)
+    let newIndex = targetMsg.swipeIndex ?? 0
+    if (swipeIndexToDelete < newIndex) {
+      newIndex -= 1
+    } else if (newIndex >= newSwipes.length) {
+      newIndex = newSwipes.length - 1
+    }
+    const targetSwipe = newSwipes[newIndex]
+
+    const updatedMsgs = currentMessages.map((m) => {
+      if (m.id !== messageId) return m
+      return {
+        ...m,
+        swipes: newSwipes,
+        swipeIndex: newIndex,
+        content: targetSwipe?.content || '',
+        reasoningContent: targetSwipe?.reasoningContent || '',
+        stats: targetSwipe?.stats || null,
+        model: targetSwipe?.model || m.model,
+        responseId: targetSwipe?.responseId || m.responseId,
+      }
+    })
+    updateCurrentSessionMessages(updatedMsgs)
+  }, [isStreaming, currentMessages, handleDeleteMessage, updateCurrentSessionMessages])
+
+  // Edit an existing message
+  const handleEditMessage = (messageId, newContent) => {
+    const updatedMsgs = currentMessages.map((m) => {
+      if (m.id !== messageId) return m
+      let swipes = m.swipes
+      if (Array.isArray(swipes) && swipes.length > 0) {
+        const idx = m.swipeIndex ?? 0
+        swipes = swipes.map((s, i) => (i === idx ? { ...s, content: newContent } : s))
+      }
+      return { ...m, content: newContent, swipes }
+    })
     updateCurrentSessionMessages(updatedMsgs)
   }
 
@@ -925,6 +1091,8 @@ export default function App() {
           onStopGeneration={handleStopGeneration}
           onContinueGeneration={handleContinueGeneration}
           onRegenerate={handleRegenerate}
+          onSelectSwipe={handleSelectSwipe}
+          onDeleteSwipe={handleDeleteSwipe}
           onEditMessage={handleEditMessage}
           onDeleteMessage={handleDeleteMessage}
           isStreaming={isStreaming}

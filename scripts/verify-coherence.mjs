@@ -676,4 +676,63 @@ await check('TokenBudgetManager truncates oversized latest message so total cont
   assert.match(result.fittedMessages[0].content, /\[message truncated to fit context\]/)
 })
 
+await check('Message swipes are normalized on load, persist across saves, and keep active content synchronized', async () => {
+  const store = new Map()
+  globalThis.localStorage = {
+    getItem: k => store.get(k) ?? null,
+    setItem: (k, v) => store.set(k, v),
+    removeItem: k => store.delete(k),
+  }
+
+  // 1. Legacy session without swipes
+  const legacySession = {
+    'char-1': [{
+      id: 'sess-1',
+      title: 'Test Session',
+      messages: [
+        { id: 'm-1', role: 'user', content: 'Hello' },
+        { id: 'm-2', role: 'assistant', content: 'Original reply', stats: { tokens_per_second: 25.5 } },
+      ],
+    }],
+  }
+  globalThis.localStorage.setItem('loreforge_sessions_v1', JSON.stringify(legacySession))
+
+  const loaded = storageService.getSessions()
+  const assistantMsg = loaded['char-1'][0].messages[1]
+  assert.ok(Array.isArray(assistantMsg.swipes), 'Assistant message must have swipes array')
+  assert.equal(assistantMsg.swipes.length, 1)
+  assert.equal(assistantMsg.swipeIndex, 0)
+  assert.equal(assistantMsg.swipes[0].content, 'Original reply')
+  assert.equal(assistantMsg.content, 'Original reply')
+
+  // 2. Add alternative swipes and re-save
+  assistantMsg.swipes.push({
+    content: 'Second alternative swipe',
+    reasoningContent: 'Thinking about alternative 2',
+    stats: { tokens_per_second: 30.2 },
+    model: 'model-b',
+    createdAt: Date.now(),
+  })
+  assistantMsg.swipeIndex = 1
+
+  await storageService.saveSessions(loaded)
+
+  const reloaded = storageService.getSessions()
+  const reloadedAssistant = reloaded['char-1'][0].messages[1]
+  assert.equal(reloadedAssistant.swipes.length, 2)
+  assert.equal(reloadedAssistant.swipeIndex, 1)
+  // Active content is kept in sync with swipe 1
+  assert.equal(reloadedAssistant.content, 'Second alternative swipe')
+  assert.equal(reloadedAssistant.reasoningContent, 'Thinking about alternative 2')
+
+  // 3. Switch back to swipe 0
+  reloadedAssistant.swipeIndex = 0
+  await storageService.saveSessions(reloaded)
+
+  const reloadedAgain = storageService.getSessions()
+  const msgAt0 = reloadedAgain['char-1'][0].messages[1]
+  assert.equal(msgAt0.swipeIndex, 0)
+  assert.equal(msgAt0.content, 'Original reply')
+})
+
 console.log(`\n${passed} coherence checks passed.`)

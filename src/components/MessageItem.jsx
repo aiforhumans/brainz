@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import {
   Copy,
   Check,
@@ -10,10 +10,24 @@ import {
   ChevronDown,
   ChevronUp,
   Zap,
+  ChevronLeft,
+  ChevronRight,
+  Play,
+  Compass,
+  Sparkles,
+  X,
 } from 'lucide-react'
 import { formatRoleplayContent } from '../utils/roleplayFormatter'
 import { replaceMacros } from '../utils/macroUtils.js'
 import { imageStorage } from '../services/imageStorage.js'
+
+const STEER_CHIPS = [
+  'Describe surroundings & atmosphere',
+  'More playful & teasing',
+  'More assertive & direct',
+  'Advance the action & plot',
+  'Focus on internal emotion',
+]
 
 export function MessageItem({
   message,
@@ -22,15 +36,83 @@ export function MessageItem({
   isLastAssistant,
   isStreaming,
   onRegenerate,
+  onContinue,
+  onSelectSwipe,
+  onDeleteSwipe,
   onEditMessage,
   onDeleteMessage,
 }) {
   const [isEditing, setIsEditing] = useState(false)
   const [editContent, setEditContent] = useState(message.content)
   const [copied, setCopied] = useState(false)
+  const [showSteerPopover, setShowSteerPopover] = useState(false)
+  const [steerText, setSteerText] = useState('')
   const [resolvedImage, setResolvedImage] = useState(() => (
     message.image && !message.image.startsWith('idb:') ? message.image : null
   ))
+
+  const swipes = useMemo(() => {
+    if (Array.isArray(message.swipes) && message.swipes.length > 0) {
+      return message.swipes
+    }
+    if (message.role === 'assistant') {
+      return [{
+        content: message.content || '',
+        reasoningContent: message.reasoningContent || '',
+        stats: message.stats || null,
+        model: message.model || null,
+        responseId: message.responseId || null,
+        createdAt: message.createdAt || Date.now(),
+      }]
+    }
+    return []
+  }, [message.swipes, message.role, message.content, message.reasoningContent, message.stats, message.model, message.responseId, message.createdAt])
+
+  const swipeIndex = Math.max(0, Math.min(Number(message.swipeIndex) || 0, Math.max(0, swipes.length - 1)))
+
+  // Sync editContent when message.content changes (e.g. switching swipe or streaming)
+  useEffect(() => {
+    setEditContent(message.content || '')
+  }, [message.content])
+
+  const handlePrevSwipe = useCallback((e) => {
+    e?.stopPropagation()
+    if (swipeIndex > 0) {
+      onSelectSwipe?.(message.id, swipeIndex - 1)
+    }
+  }, [swipeIndex, onSelectSwipe, message.id])
+
+  const handleNextSwipe = useCallback((e) => {
+    e?.stopPropagation()
+    if (swipeIndex < swipes.length - 1) {
+      onSelectSwipe?.(message.id, swipeIndex + 1)
+    }
+  }, [swipeIndex, swipes.length, onSelectSwipe, message.id])
+
+  // Alt + Left / Alt + Right keyboard shortcut for cycling swipes
+  useEffect(() => {
+    if (!isLastAssistant || isEditing) return
+    const handleKeyDown = (e) => {
+      if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return
+      if (e.altKey && e.key === 'ArrowLeft') {
+        e.preventDefault()
+        handlePrevSwipe()
+      } else if (e.altKey && e.key === 'ArrowRight') {
+        e.preventDefault()
+        handleNextSwipe()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isLastAssistant, isEditing, handlePrevSwipe, handleNextSwipe])
+
+  const handleApplySteer = (directiveToUse) => {
+    const directive = directiveToUse || steerText
+    if (!directive.trim()) return
+    setShowSteerPopover(false)
+    setSteerText('')
+    onRegenerate?.({ steerDirective: directive.trim() })
+  }
 
   useEffect(() => {
     if (!message.image) {
@@ -243,38 +325,190 @@ export function MessageItem({
           )}
         </div>
 
-        {/* Action Toolbar */}
+        {/* Action Toolbar / Swipe Pager Footer */}
         {!isEditing && !isStreaming && (
-          <div className="message-actions">
-            <button className="btn-msg-action" onClick={handleCopy} title="Copy text">
-              {copied ? <Check size={12} style={{ color: 'var(--accent-emerald)' }} /> : <Copy size={12} />}
-              <span>{copied ? 'Copied' : 'Copy'}</span>
-            </button>
+          isLastAssistant ? (
+            <div className="message-swipe-footer-wrap">
+              <div className="message-swipe-footer">
+                {/* Swipe Pager */}
+                <div className="swipe-pager">
+                  <button
+                    type="button"
+                    className="btn-swipe-nav"
+                    disabled={swipeIndex === 0}
+                    onClick={handlePrevSwipe}
+                    title="Previous response (Alt+Left)"
+                    aria-label="Previous swipe"
+                  >
+                    <ChevronLeft size={14} />
+                  </button>
+                  <span className="swipe-indicator" title="Current swipe">
+                    {swipeIndex + 1} / {Math.max(1, swipes.length)}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn-swipe-nav"
+                    disabled={swipeIndex >= swipes.length - 1}
+                    onClick={handleNextSwipe}
+                    title="Next response (Alt+Right)"
+                    aria-label="Next swipe"
+                  >
+                    <ChevronRight size={14} />
+                  </button>
+                </div>
 
-            <button className="btn-msg-action" onClick={() => setIsEditing(true)} title="Edit message">
-              <Edit3 size={12} />
-              <span>Edit</span>
-            </button>
+                <div className="swipe-actions-divider" />
 
-            {isLastAssistant && (
-              <button
-                className="btn-msg-action"
-                onClick={onRegenerate}
-                title="Regenerate alternative response"
-              >
-                <RotateCw size={12} />
-                <span>Reroll</span>
+                {/* Continue Generation */}
+                <button
+                  type="button"
+                  className="btn-msg-action"
+                  onClick={onContinue}
+                  title="Continue / Lengthen this response"
+                >
+                  <Play size={12} fill="currentColor" />
+                  <span>Continue</span>
+                </button>
+
+                {/* Steer Popover Toggle */}
+                <button
+                  type="button"
+                  className={`btn-msg-action ${showSteerPopover ? 'active' : ''}`}
+                  onClick={() => setShowSteerPopover((prev) => !prev)}
+                  title="Guide the next alternative response"
+                >
+                  <Compass size={12} />
+                  <span>Steer</span>
+                </button>
+
+                {/* Reroll Alternative */}
+                <button
+                  type="button"
+                  className="btn-msg-action"
+                  onClick={() => onRegenerate?.()}
+                  title="Reroll another alternative response"
+                >
+                  <RotateCw size={12} />
+                  <span>Reroll</span>
+                </button>
+
+                {/* Edit Message */}
+                <button
+                  type="button"
+                  className="btn-msg-action"
+                  onClick={() => setIsEditing(true)}
+                  title="Edit message content"
+                >
+                  <Edit3 size={12} />
+                  <span>Edit</span>
+                </button>
+
+                {/* Copy Text */}
+                <button
+                  type="button"
+                  className="btn-msg-action"
+                  onClick={handleCopy}
+                  title="Copy response text"
+                >
+                  {copied ? <Check size={12} style={{ color: 'var(--accent-emerald)' }} /> : <Copy size={12} />}
+                  <span>{copied ? 'Copied' : 'Copy'}</span>
+                </button>
+
+                {/* Delete Swipe / Message */}
+                <button
+                  type="button"
+                  className="btn-msg-action delete"
+                  onClick={() => {
+                    if (swipes.length > 1) {
+                      onDeleteSwipe?.(message.id, swipeIndex)
+                    } else {
+                      onDeleteMessage?.(message.id)
+                    }
+                  }}
+                  title={swipes.length > 1 ? 'Delete this swipe' : 'Delete message'}
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
+
+              {/* Steer Guided Reroll Popover */}
+              {showSteerPopover && (
+                <div className="steer-popover" onClick={(e) => e.stopPropagation()}>
+                  <div className="steer-popover-header">
+                    <div className="steer-title">
+                      <Compass size={14} />
+                      <span>Steer Next Response</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn-icon-close"
+                      onClick={() => setShowSteerPopover(false)}
+                      aria-label="Close steer popover"
+                    >
+                      <X size={13} />
+                    </button>
+                  </div>
+                  <p className="steer-hint">Direct the next swipe without breaking character narrative:</p>
+                  <div className="steer-chips">
+                    {STEER_CHIPS.map((chip) => (
+                      <button
+                        key={chip}
+                        type="button"
+                        className="steer-chip"
+                        onClick={() => handleApplySteer(chip)}
+                      >
+                        {chip}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="steer-input-row">
+                    <input
+                      type="text"
+                      className="steer-input"
+                      placeholder="e.g. Speak more softly, describe the room..."
+                      value={steerText}
+                      onChange={(e) => setSteerText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && steerText.trim()) {
+                          handleApplySteer()
+                        }
+                      }}
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      className="btn-primary btn-sm"
+                      disabled={!steerText.trim()}
+                      onClick={() => handleApplySteer()}
+                    >
+                      <Sparkles size={12} />
+                      <span>Generate</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="message-actions">
+              <button className="btn-msg-action" onClick={handleCopy} title="Copy text">
+                {copied ? <Check size={12} style={{ color: 'var(--accent-emerald)' }} /> : <Copy size={12} />}
+                <span>{copied ? 'Copied' : 'Copy'}</span>
               </button>
-            )}
 
-            <button
-              className="btn-msg-action delete"
-              onClick={() => onDeleteMessage(message.id)}
-              title="Delete message"
-            >
-              <Trash2 size={12} />
-            </button>
-          </div>
+              <button className="btn-msg-action" onClick={() => setIsEditing(true)} title="Edit message">
+                <Edit3 size={12} />
+                <span>Edit</span>
+              </button>
+
+              <button
+                className="btn-msg-action delete"
+                onClick={() => onDeleteMessage(message.id)}
+                title="Delete message"
+              >
+                <Trash2 size={12} />
+              </button>
+            </div>
+          )
         )}
       </div>
     </div>

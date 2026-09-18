@@ -230,7 +230,39 @@ export const storageService = {
   getSessions() {
     try {
       const data = localStorage.getItem(STORAGE_KEYS.SESSIONS)
-      return data ? JSON.parse(data) : {}
+      if (!data) return {}
+      const parsed = JSON.parse(data)
+      // Normalize swipes for assistant messages if loaded from legacy data
+      for (const charSessions of Object.values(parsed || {})) {
+        if (!Array.isArray(charSessions)) continue
+        for (const s of charSessions) {
+          if (!Array.isArray(s?.messages)) continue
+          for (const m of s.messages) {
+            if (m.role === 'assistant') {
+              if (!Array.isArray(m.swipes) || m.swipes.length === 0) {
+                m.swipes = [{
+                  content: typeof m.content === 'string' ? m.content : '',
+                  reasoningContent: typeof m.reasoningContent === 'string' ? m.reasoningContent : '',
+                  stats: m.stats || null,
+                  model: m.model || null,
+                  responseId: m.responseId || null,
+                  createdAt: m.createdAt || Date.now(),
+                }]
+                m.swipeIndex = 0
+              } else {
+                m.swipeIndex = Math.max(0, Math.min(Number(m.swipeIndex) || 0, m.swipes.length - 1))
+                // Ensure m.content is synced with active swipe
+                if (m.swipes[m.swipeIndex]) {
+                  m.content = m.swipes[m.swipeIndex].content
+                  m.reasoningContent = m.swipes[m.swipeIndex].reasoningContent || ''
+                  if (m.swipes[m.swipeIndex].stats) m.stats = m.swipes[m.swipeIndex].stats
+                }
+              }
+            }
+          }
+        }
+      }
+      return parsed
     } catch (e) {
       console.error('Failed to load sessions', e)
       return {}
@@ -291,20 +323,63 @@ export const storageService = {
         }
       }
 
+      // Swipes support
+      let swipes = null
+      let swipeIndex = 0
+      if (Array.isArray(m.swipes) && m.swipes.length > 0) {
+        swipes = m.swipes.map((sw) => ({
+          content: typeof sw.content === 'string' ? sw.content : '',
+          reasoningContent: typeof sw.reasoningContent === 'string' ? sw.reasoningContent : '',
+          stats: sw.stats && typeof sw.stats === 'object' ? {
+            tokens_per_second: Number(sw.stats.tokens_per_second) || 0,
+            time_to_first_token_seconds: Number(sw.stats.time_to_first_token_seconds) || 0,
+            total_output_tokens: Number(sw.stats.total_output_tokens) || 0,
+          } : null,
+          model: typeof sw.model === 'string' ? sw.model : null,
+          responseId: typeof sw.responseId === 'string' ? sw.responseId : null,
+          createdAt: typeof sw.createdAt === 'number' ? sw.createdAt : Date.now(),
+        }))
+        swipeIndex = Math.max(0, Math.min(Number(m.swipeIndex) || 0, swipes.length - 1))
+      } else if (m.role === 'assistant') {
+        swipes = [{
+          content: typeof m.content === 'string' ? m.content : '',
+          reasoningContent: typeof m.reasoningContent === 'string' ? m.reasoningContent : '',
+          stats: m.stats && typeof m.stats === 'object' ? {
+            tokens_per_second: Number(m.stats.tokens_per_second) || 0,
+            time_to_first_token_seconds: Number(m.stats.time_to_first_token_seconds) || 0,
+            total_output_tokens: Number(m.stats.total_output_tokens) || 0,
+          } : null,
+          model: typeof m.model === 'string' ? m.model : null,
+          responseId: typeof m.responseId === 'string' ? m.responseId : null,
+          createdAt: typeof m.createdAt === 'number' ? m.createdAt : Date.now(),
+        }]
+        swipeIndex = 0
+      }
+
+      const activeContent = swipes && swipes[swipeIndex]
+        ? swipes[swipeIndex].content
+        : (typeof m.content === 'string' ? m.content : (m.content ? String(m.content.text || m.content.content || '') : ''))
+      const activeReasoning = swipes && swipes[swipeIndex]
+        ? swipes[swipeIndex].reasoningContent
+        : (typeof m.reasoningContent === 'string' ? m.reasoningContent : '')
+      const activeStats = swipes && swipes[swipeIndex]?.stats ? swipes[swipeIndex].stats : m.stats
+
       return {
         id: String(m.id || ''),
         role: m.role === 'assistant' ? 'assistant' : (m.role === 'system' ? 'system' : 'user'),
-        content: typeof m.content === 'string' ? m.content : (m.content ? String(m.content.text || m.content.content || '') : ''),
-        reasoningContent: typeof m.reasoningContent === 'string' ? m.reasoningContent : '',
+        content: activeContent,
+        reasoningContent: activeReasoning,
+        swipes,
+        swipeIndex,
         image: imageForStorage,
         imageKey: m.imageKey || (imageForStorage && imageForStorage.startsWith('idb:') ? imageForStorage : null),
         complete: m.complete !== undefined ? Boolean(m.complete) : true,
         failed: Boolean(m.failed),
         control: Boolean(m.control),
-        stats: m.stats && typeof m.stats === 'object' ? {
-          tokens_per_second: Number(m.stats.tokens_per_second) || 0,
-          time_to_first_token_seconds: Number(m.stats.time_to_first_token_seconds) || 0,
-          total_output_tokens: Number(m.stats.total_output_tokens) || 0,
+        stats: activeStats && typeof activeStats === 'object' ? {
+          tokens_per_second: Number(activeStats.tokens_per_second) || 0,
+          time_to_first_token_seconds: Number(activeStats.time_to_first_token_seconds) || 0,
+          total_output_tokens: Number(activeStats.total_output_tokens) || 0,
         } : null,
         createdAt: typeof m.createdAt === 'number' ? m.createdAt : Date.now(),
         model: typeof m.model === 'string' ? m.model : null,

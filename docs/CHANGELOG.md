@@ -1,6 +1,20 @@
 # Change log
 
-## 2026-09-19 — Deep hardening: full prompt cache fingerprinting, strict context limit bounding, and robust IndexedDB media lifecycle
+## 2026-09-19 — Chat experience optimization: response swiping, continue/lengthen, steer directives, and smart scroll lock
+
+- **SillyTavern-style response swiping (`< 1/3 >`)**:
+  - Pinned obsidian glass footer toolbar on the active/latest assistant bubble featuring swipe pager (`[ < 1/3 > ]`), Continue (`Play`), Steer (`Compass`), Reroll (`RotateCw`), Edit (`Edit3`), Copy (`Copy`), and Delete (`Trash2`).
+  - Implemented keyboard navigation: `Alt + ArrowLeft` and `Alt + ArrowRight` to cycle swipes smoothly without leaving the keyboard.
+  - Backward-compatible storage schema: messages store `swipes: [{ content, reasoningContent, stats, model, responseId, createdAt }]` with `swipeIndex: number`, keeping `message.content` synchronized to the active swipe so all downstream services (brain auto-learn, token diagnostics, prompt builder, transcript export) operate seamlessly.
+  - Swipe deletion ergonomics: if `swipes.length > 1`, deleting removes only the active swipe and shifts to an adjacent reply; if 1 swipe remains, deleting removes the entire turn.
+- **Continue / Lengthen generation**:
+  - Implemented seamless text continuation from where the model stopped, appending new streaming tokens directly to the current swipe content in real time.
+- **Steer / Guided re-roll**:
+  - Added inline steer popover with quick chips ("Describe surroundings & atmosphere", "More playful & teasing", "More assertive & direct", "Advance the action & plot", "Focus on internal emotion") and directive prompt input to guide alternative swipes without breaking roleplay immersion.
+- **Smart scroll lock & jump-to-bottom**:
+  - Added user scroll detection in `ChatArea.jsx`: scrolling up by >80px pauses sticky auto-scroll during active streaming or reading.
+  - Added floating pill button: "Jump to latest ↓" with an unread token/message counter that smoothly re-engages sticky bottom auto-scroll on click.
+- **Verification**: Added automated test in `scripts/verify-coherence.mjs` verifying swipe normalization, persistence, and active content synchronization (47 coherence checks passing); `npm run lint` passed with zero errors.
 
 - **Full prompt cache fingerprinting**: Updated `_computePromptFingerprint()` in `lmStudioClient.js` to hash all message turns across the entire conversation history (including role, content, image references, completion, failed, and control flags) alongside all authored character fields, persona, lorebook, settings, and brain state. Edits or regenerations to any historical turn reliably invalidate cached system prompts.
 - **Strict context bounding for oversized latest message**: Enhanced `TokenBudgetManager.fitHistory()` in `pipelineEngine.js` to detect when the latest message alone exceeds the remaining conversation budget. Instead of letting oversized inputs overflow the model context, it now intelligently truncates the message text to fit within the available tokens while maintaining valid history structure and setting truncation flags.

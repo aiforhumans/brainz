@@ -136,6 +136,34 @@ export default function App() {
     setLearningTick(t => t + 1)
   }, [activeCharacter.id, invalidateLearning])
 
+  // Helper to construct opening greeting message with alternate greetings as swipes
+  const createInitialGreetingMessage = useCallback((char, persona) => {
+    if (!char?.greeting) return null
+    const now = Date.now()
+    const allGreetings = [
+      char.greeting,
+      ...(Array.isArray(char.alternateGreetings)
+        ? char.alternateGreetings.map((g) => (typeof g === 'string' ? g : g?.text)).filter(Boolean)
+        : []),
+    ]
+    const swipes = allGreetings.map((text, i) => ({
+      content: replaceMacros(text, { userName: persona?.name, charName: char.name }),
+      reasoningContent: '',
+      stats: null,
+      model: null,
+      responseId: null,
+      createdAt: now + i,
+    }))
+    return {
+      id: `msg-${now}`,
+      role: 'assistant',
+      content: swipes[0]?.content || '',
+      swipes,
+      swipeIndex: 0,
+      createdAt: now,
+    }
+  }, [])
+
   // Ensure active session exists on character change
   useEffect(() => {
     if (!activeCharacter?.id) return
@@ -146,15 +174,8 @@ export default function App() {
 
       const now = Date.now()
       const newSessionId = `sess-${now}`
-      const initialMessages = []
-      if (activeCharacter.greeting) {
-        initialMessages.push({
-          id: `msg-${now}`,
-          role: 'assistant',
-          content: replaceMacros(activeCharacter.greeting, { userName: userPersona?.name, charName: activeCharacter.name }),
-          createdAt: now,
-        })
-      }
+      const initialGreeting = createInitialGreetingMessage(activeCharacter, userPersona)
+      const initialMessages = initialGreeting ? [initialGreeting] : []
 
       const newSession = {
         id: newSessionId,
@@ -172,7 +193,7 @@ export default function App() {
       storageService.setActiveSessionId(activeCharacter.id, newSessionId)
       return updated
     })
-  }, [activeCharacter?.id, activeCharacter?.greeting, activeCharacter?.name, userPersona?.name])
+  }, [activeCharacter, userPersona, createInitialGreetingMessage])
 
   // Hydrate image attachments stored in IndexedDB into session state on startup
   useEffect(() => {
@@ -312,6 +333,11 @@ export default function App() {
       scenario: json.scenario || json.data?.scenario || '',
       systemPrompt: json.systemPrompt || json.data?.systemPrompt || json.system_prompt || '',
       greeting: json.greeting || json.first_mes || json.data?.first_mes || '',
+      alternateGreetings: Array.isArray(json.alternate_greetings)
+        ? json.alternate_greetings.map((g, i) => (typeof g === 'string' ? { id: `alt-${Date.now()}-${i}`, label: `Alternate ${i + 1}`, text: g } : g))
+        : Array.isArray(json.data?.alternate_greetings)
+          ? json.data.alternate_greetings.map((g, i) => (typeof g === 'string' ? { id: `alt-${Date.now()}-${i}`, label: `Alternate ${i + 1}`, text: g } : g))
+          : Array.isArray(json.alternateGreetings) ? json.alternateGreetings : [],
       nsfw: Boolean(json.nsfw ?? json.data?.nsfw),
     }
 
@@ -329,15 +355,8 @@ export default function App() {
     const charSessions = sessions[activeCharacter.id] || []
     const sessionCount = charSessions.length + 1
 
-    const initialMessages = []
-    if (activeCharacter.greeting) {
-      initialMessages.push({
-        id: `msg-${Date.now()}`,
-        role: 'assistant',
-        content: replaceMacros(activeCharacter.greeting, { userName: userPersona?.name, charName: activeCharacter.name }),
-        createdAt: Date.now(),
-      })
-    }
+    const initialGreeting = createInitialGreetingMessage(activeCharacter, userPersona)
+    const initialMessages = initialGreeting ? [initialGreeting] : []
 
     const newSession = {
       id: newSessionId,
@@ -409,16 +428,10 @@ export default function App() {
 
   // Restore the character opening greeting if cleared
   const handleRestoreGreeting = () => {
-    if (!activeCharacter?.greeting) return
-    const now = Date.now()
-    updateCurrentSessionMessages([
-      {
-        id: `msg-${now}`,
-        role: 'assistant',
-        content: replaceMacros(activeCharacter.greeting, { userName: userPersona?.name, charName: activeCharacter.name }),
-        createdAt: now,
-      },
-    ])
+    const initialGreeting = createInitialGreetingMessage(activeCharacter, userPersona)
+    if (initialGreeting) {
+      updateCurrentSessionMessages([initialGreeting])
+    }
   }
 
   // Core streaming executor for new messages and regenerations

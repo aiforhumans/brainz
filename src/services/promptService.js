@@ -23,7 +23,7 @@ export function createCharacterTemplate(userPersona = {}) {
   return {
     name: '', tagline: '', category: 'Realistic', avatar: '', tags: 'Realistic, 1-on-1, Conversational', personality: '', scenario: '',
     systemPrompt: `Embody the character described in this card in conversation with ${name}. Let the character's own voice and the evolving situation guide the response. Preserve the other participant's agency.`,
-    greeting: '', nsfw: false,
+    greeting: '', alternateGreetings: [], nsfw: false,
   }
 }
 

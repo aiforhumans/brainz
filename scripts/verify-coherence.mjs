@@ -735,4 +735,33 @@ await check('Message swipes are normalized on load, persist across saves, and ke
   assert.equal(msgAt0.content, 'Original reply')
 })
 
+await check('Character Studio alternate greetings are preserved in character persistence and template', () => {
+  const store = new Map()
+  globalThis.localStorage = {
+    getItem: k => store.get(k) ?? null,
+    setItem: (k, v) => store.set(k, v),
+    removeItem: k => store.delete(k),
+  }
+
+  const customChar = {
+    id: 'char-custom-alts',
+    name: 'Seraphina',
+    tagline: 'High Priestess',
+    greeting: 'Welcome to the sanctum.',
+    alternateGreetings: [
+      { id: 'alt-1', label: 'Tavern Encounter', text: 'You find her sitting in the tavern corner.' },
+      { id: 'alt-2', label: 'Battlefield', text: 'The air smells of ozone as she lowers her staff.' },
+    ],
+  }
+
+  storageService.saveCharacters([customChar])
+  const loaded = storageService.getCharacters()
+  const found = loaded.find(c => c.id === 'char-custom-alts')
+  assert.ok(found, 'Custom character should be loaded')
+  assert.equal(found.greeting, 'Welcome to the sanctum.')
+  assert.equal(found.alternateGreetings?.length, 2)
+  assert.equal(found.alternateGreetings[0].label, 'Tavern Encounter')
+  assert.equal(found.alternateGreetings[1].text, 'The air smells of ozone as she lowers her staff.')
+})
+
 console.log(`\n${passed} coherence checks passed.`)

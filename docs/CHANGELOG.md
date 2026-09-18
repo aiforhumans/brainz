@@ -1,6 +1,28 @@
 # Change log
 
-## 2026-09-19 — Chat experience optimization: response swiping, continue/lengthen, steer directives, and smart scroll lock
+## 2026-09-19 — Character Studio redesign: obsidian 2-column layout, drag-and-drop avatar, live card & token preview, blueprint generator, and alternate greetings deck
+
+- **Obsidian 2-column Character Studio layout**:
+  - Replaced legacy single-column modal with a wide desktop studio experience: structured authoring panels on the left and sticky live preview on the right.
+  - Extracted all styling to `src/index.css` (`.character-studio-modal`, `.character-studio-layout`, `.character-studio-editor`, `.character-studio-preview`, `.studio-card`, `.avatar-dropzone`, `.greetings-deck`, `.preview-card-box`, `.preview-budget-box`) with zero inline styles.
+- **Direct Avatar Drag & Drop + Local File Upload**:
+  - Replaced external URL dependency with an interactive drag-and-drop zone supporting local image file selection and drop.
+  - Image files are persisted directly into IndexedDB via `imageStorage.saveImage()`, avoiding LocalStorage 5MB quota exhaustion, with instant preview resolution via `imageStorage.resolveImage()`.
+- **Live Card & Token Breakdown Preview**:
+  - Sticky right panel displays a live preview card with resolved avatar, name, subtitle, and 18+ badge.
+  - Real-time token breakdown meter tracks Persona, Scenario/World, Greetings, and Directives individually against their token budgets.
+  - Live prose preview with interactive `{{user}}` and `{{char}}` macro resolution demonstrating how roleplay asterisks and quotes will appear in chat.
+- **Top Quick Blueprint Generator**:
+  - Top expandable bar with one-click archetype inserts (3-part templates for Identity, Personality, and Scenario), roleplay tone selector, whole-card AI generation from scenario, and full card rewrite.
+  - Inline field-level AI assist pills for each card: "Enhance Voice", "Flesh out World", "Draft from Scenario", and "Optimize Directives".
+- **Alternate Greetings Deck**:
+  - Added multi-greeting authoring deck in Character Studio with custom scenario labels, inline token counts, and add/remove controls.
+  - Integrated with chat session initialization (`App.jsx`): opening messages are populated with `swipes` containing the primary greeting and all alternate greetings, allowing instant `< 1/3 >` cycling and Alt+Left/Right navigation across starting scenarios.
+  - Updated character import in `App.jsx` and template in `promptService.js` to preserve `alternate_greetings`.
+- **Verification**:
+  - Added automated test in `scripts/verify-coherence.mjs` verifying alternate greetings preservation and template integrity (48/48 coherence checks passing).
+  - `npm run lint` passed with zero errors.
+  - Browser subagent smoke test verified layout, live preview rendering, blueprint expansion, avatar dropzone, and blank state handling without console warnings.
 
 - **SillyTavern-style response swiping (`< 1/3 >`)**:
   - Pinned obsidian glass footer toolbar on the active/latest assistant bubble featuring swipe pager (`[ < 1/3 > ]`), Continue (`Play`), Steer (`Compass`), Reroll (`RotateCw`), Edit (`Edit3`), Copy (`Copy`), and Delete (`Trash2`).

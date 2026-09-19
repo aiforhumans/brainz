@@ -4,6 +4,15 @@ A local-first roleplay chat application for desktop browsers, built with React 1
 
 ## Features
 
+- **Tabbed Bento Workspace Inspector**: Collapsible 330px slide-over context center (`Ctrl+I`) housing 4 dedicated panels:
+  - **Overview**: Active persona identity, live scene state tracking (location, participants, pending actions), Character Studio shortcut, and full Scenario & World Setting card with dynamic `{{user}}` / `{{char}}` macro replacement.
+  - **Mind**: Character mental model featuring Conversation Partner Mindprint (bio, dialogue preferences, traits, likes), Autonomous Learning progress bar (`replies / 8 turns` cadence), subconscious memory bank with confidence ratings and prompt-inclusion badges, and chapter summaries.
+  - **Lore**: Active in-scene triggered lore with keyword tags, plus a World Lorebook Library with titles, keyword tags, standby/active badges, and content excerpts.
+  - **Context**: Real-time token budget telemetry with a multi-segment visual progress bar (System, Memories, Lore, Chat History, Free Headroom), exact token counts, output generation reserve, and model context limits.
+- **Unified Context Header**: 62px obsidian glass header with character avatar/tagline, integrated Chapter Dropdown (`📖 Chapter 1 ▾`) grouping chapter switching, `+ New Chapter`, Restore Greeting, Export Markdown, and turn clear in one sleek menu.
+- **Collapsible Dual-State Sidebar**: Toggle between a standard 320px drawer and a 68px collapsed mini icon dock with glowing active indicators and hover tooltips, persisted in LocalStorage (`Ctrl+B`).
+- **Floating Omni-Dock**: Streamlined floating glass island with pure input focus, vision image attachment support, integrated syntax cues (`*actions*`, `"dialogue"`), and automatic bottom clearing.
+- **Ultrawide & Multi-Monitor Scaling**: Responsive flexbox layout that centers message streams and floating input islands on the exact same vertical axis across standard 1080p/1440p displays and 21:9 / 32:9 ultrawide screens (3440×1440).
 - **Obsidian Character Studio**: Wide 2-column desktop editor with categorized authoring cards, live card header, 4-part token breakdown meter, and formatted prose preview with `{{user}}` / `{{char}}` macro resolution.
 - **Local Avatar Drag & Drop**: Native drag-and-drop image upload with automated IndexedDB storage, URL fallback, and 18+ NSFW toggle.
 - **Alternate Greetings Deck**: Multi-scenario opening greeting authoring with custom labels and inline token counters, initialized as instant chat swipes.
@@ -11,7 +20,6 @@ A local-first roleplay chat application for desktop browsers, built with React 1
 - **SillyTavern-Style Response Swiping (`[ < 1/3 > ]`)**: Pinned obsidian glass toolbar on assistant messages with swipe navigation, monospace counter, and `Alt + ArrowLeft` / `Alt + ArrowRight` keyboard shortcuts.
 - **Continue & Steer Directives**: Seamless mid-sentence generation continuation and guided alternative re-rolls with quick directive chips or custom instructions without breaking character immersion.
 - **Smart Scroll Lock & Jump-to-Bottom**: Automatic detection of reading/scrolling up during streaming with a floating "Jump to latest ↓" pill showing unread tokens/messages.
-- **Real-Time Memory & Token Overview Bar**: Pinned main chat footer tracking subconscious memory tokens, session summaries, lorebook tokens, and fitted conversation history alongside a dynamic context budget headroom gauge and expandable diagnostics drawer.
 - **Zero-Quota Media Offloading**: Chat images and local avatars are automatically offloaded to browser IndexedDB, eliminating LocalStorage 5MB quota exhaustion while maintaining fast lazy rendering.
 - **Evidence-Based Character Memory**: Automatic idle learning (8-reply cadence), explicit manual profile confirmation, contradiction resolution, and live system-prompt preview.
 - **Strict Context & Cache Pipeline**: Deterministic prompt cache fingerprinting across all conversation turns and character state, backwards history windowing, oversized message safety truncation, and multimodal history interleaving.
@@ -72,21 +80,20 @@ Send messages with Enter; use Shift+Enter for a newline. Asterisks denote action
 - **Smart Scroll Lock**:
   - Scrolling up by more than 80px pauses sticky auto-scroll during active generation so you can read without disruption.
   - A floating **"Jump to latest ↓"** pill indicates incoming unread tokens/messages and re-engages sticky scrolling when clicked.
-- **Chapters & Continuity**:
-  - Chapters organize conversation transcripts into separate story arcs, but **memory continuity is shared across a character's chapters**. Each character has a single unified brain.
-- **Lorebook**:
-  - Entries trigger dynamically when their keywords appear within the recent message window.
+- **Unified Chapter Dropdown (`📖 Chapter 1 ▾`)**:
+  - Organizes conversation transcripts into separate story arcs while **memory continuity is shared across a character's chapters**.
+  - Clicking the chapter button in the context header opens a consolidated menu with active chapter checkmarks, instant `+ New Chapter`, Restore Opening Greeting, Export Transcript (.md), and Turn Clear actions.
+- **Floating Omni-Dock**:
+  - A clean glass island anchored above the bottom viewport edge, featuring roleplay syntax placeholders, vision attachments, and pure conversational focus.
 
-### Real-time token overview and diagnostics
+### Workspace Inspector & Context Telemetry
 
-Pinned to the bottom of the chat window is the **Token Overview Bar**:
+The 330px slide-over **Workspace Inspector** (`Ctrl+I`) provides a centralized, four-tabbed context management center:
 
-- **Real-Time Token Badges**: Displays active subconscious memory tokens, session summary tokens, active lorebook tokens, and fitted chat history tokens.
-- **Context Headroom Gauge**: A gradient meter (normal, warning, critical) showing current total input tokens relative to the model's context window and generation reserve.
-- **Auto-Learn Progress**: Shows the active learning cadence (`X/8 replies until auto-synthesis`) and brain revision count.
-- **Interactive Diagnostics Drawer**: Clicking the bar expands a detailed HUD:
-  - **Context & Budgets Tab**: Visual stacked breakdown bar (System, Memory, Lore, Chat, Headroom, Reserve) and precise numerical metrics.
-  - **Memory Bank Tab**: Complete listing of all stored memories with category tags, confidence ratings, token weights, and prompt inclusion status.
+- **Overview Tab**: Active persona summary, live Scene State tracking (location, participants, pending actions), Character Studio launcher, and the full Scenario & World Setting card with dynamic macro substitution (`{{user}}`, `{{char}}`).
+- **Mind Tab**: Character subconscious mental model displaying the Conversation Partner Mindprint (user bio, dialogue preferences, traits, likes), Autonomous Learning progress bar (`replies / 8 turns` cadence), subconscious memory bank with confidence ratings and prompt-inclusion badges, and archived chapter summaries.
+- **Lore Tab**: Active in-scene triggered lore with keyword tags, plus a World Lorebook Library with titles, keyword tags, standby/active badges, and content excerpts.
+- **Context Tab**: Real-time token budget telemetry with a multi-segment visual progress bar (System Directives, Active Memories, Lorebook Context, Chat History, Free Headroom) with proportional colors, exact token counts, output generation reserve, and model context limits.
 
 ### Brain and learning
 
@@ -153,7 +160,8 @@ For affected UI changes, smoke-test generation, rewriting, chat, regeneration, B
 | --- | --- |
 | [App.jsx](src/App.jsx) | Application state, persistence callbacks, foreground inference, swipe dispatch, and guarded idle-learning queue |
 | [components](src/components/AGENTS.md) | UI and local form state; data and service callbacks supplied by App |
-| [TokenOverviewBar.jsx](src/components/TokenOverviewBar.jsx) | Real-time memory, lore, history tokens, context utilization gauge, and diagnostics drawer |
+| [InspectorPanel.jsx](src/components/InspectorPanel.jsx) | Tabbed Bento Workspace Inspector (Overview, Mindprint, Lorebook, and Live Token Telemetry) |
+| [ChatArea.jsx](src/components/ChatArea.jsx) | Main chat workspace, unified context header, chapter dropdown, centered stream, and floating omni-dock |
 | [CharacterModal.jsx](src/components/CharacterModal.jsx) | 2-column Character Studio, blueprint generator, avatar dropzone, live token meter, and alternate greetings deck |
 | [pipelineEngine.js](src/services/pipelineEngine.js) | Structured prompt compilation, token budgeting, backwards history fitting, and model adapters |
 | [promptService.js](src/services/promptService.js) | Shared chat/design rules, schemas, templates, macro resolution, and prompt preview |

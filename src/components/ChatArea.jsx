@@ -1,18 +1,20 @@
 import React, { useRef, useEffect, useState } from 'react'
 import {
-  MessageSquarePlus,
   RotateCcw,
   Download,
   Trash2,
-  Edit,
-  Sparkles,
-  Layers,
   Flame,
   ArrowDown,
+  Edit3,
+  SlidersHorizontal,
+  Plus,
+  Sparkles,
+  BookOpen,
+  ChevronDown,
+  Check,
 } from 'lucide-react'
 import { MessageItem } from './MessageItem'
 import { ChatInput } from './ChatInput'
-import { TokenOverviewBar } from './TokenOverviewBar'
 import { AvatarImage } from './AvatarImage'
 
 export function ChatArea({
@@ -43,17 +45,15 @@ export function ChatArea({
   attachedImage,
   setAttachedImage,
   hasVisionSupport,
-  brain,
-  lorebook,
-  settings,
-  onOpenBrain,
-  onOpenLorebook,
-  promptPipeline,
+  inspectorOpen = false,
+  onToggleInspector,
 }) {
   const messagesEndRef = useRef(null)
   const containerRef = useRef(null)
+  const chapterDropdownRef = useRef(null)
   const [isScrolledUp, setIsScrolledUp] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
+  const [showChapterDropdown, setShowChapterDropdown] = useState(false)
 
   // Track user scroll position: if scrolled up >80px from bottom, pause auto-scroll
   const handleScroll = () => {
@@ -83,165 +83,242 @@ export function ChatArea({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
 
-  const characterSessions = sessions[character.id] || []
+  // Close chapter dropdown on outside click
+  useEffect(() => {
+    if (!showChapterDropdown) return
+    const handleClickOutside = (e) => {
+      if (chapterDropdownRef.current && !chapterDropdownRef.current.contains(e.target)) {
+        setShowChapterDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showChapterDropdown])
 
-  // Find index of last assistant message for reroll
-  const lastAssistantIndex = messages.map((m) => m.role).lastIndexOf('assistant')
+  const characterSessions = sessions[character.id] || []
+  const currentSession = characterSessions.find((s) => s.id === activeSessionId) || characterSessions[0]
+
+  // Find index of the latest assistant message for swiping and regeneration
+  const lastAssistantIndex = messages.findLastIndex((m) => m.role === 'assistant')
 
   return (
-    <main className="chat-view">
-      {/* Header */}
-      <div className="chat-header">
-        <div className="chat-header-info">
-          <div className="chat-header-avatar">
-            <AvatarImage
-              src={character.avatar}
-              alt={character.name}
-              fallbackContent={character.name?.charAt(0)}
-              fallbackStyle={{ background: character.avatarFallbackBg || undefined }}
-              isNsfw={character.nsfw}
-            />
+    <main className="chat-area" aria-label={`Chat with ${character.name}`}>
+      {/* Unified Context Header */}
+      <div className="chat-header-unified">
+        {/* Left: Character Identity & Chapter Dropdown Group */}
+        <div className="chat-header-left-group">
+          <div className="chat-header-identity">
+            <div className="chat-header-avatar">
+              <AvatarImage
+                src={character.avatar}
+                alt={character.name}
+                fallbackContent={character.name?.charAt(0)}
+                fallbackStyle={{ background: character.avatarFallbackBg || undefined }}
+                isNsfw={character.nsfw}
+              />
+            </div>
+            <div className="chat-header-text">
+              <div className="chat-header-title-row">
+                <h2 className="chat-header-title">{character.name}</h2>
+                {character.nsfw && (
+                  <span className="nsfw-badge-header">
+                    <Flame size={10} fill="currentColor" /> 18+
+                  </span>
+                )}
+                {character.category && (
+                  <span className="character-category-tag">{character.category}</span>
+                )}
+              </div>
+              <p className="chat-header-tagline">{character.tagline || 'Roleplay companion'}</p>
+            </div>
           </div>
-          <div className="chat-header-text">
-            <h2>
-              {character.name}
-              {character.nsfw && (
-                <span className="nsfw-badge-header">
-                  <Flame size={10} fill="currentColor" /> 18+ NSFW
-                </span>
-              )}
-              {character.category && (
-                <span className="character-category-tag">{character.category}</span>
-              )}
-            </h2>
-            <p>{character.tagline || 'Roleplay companion'}</p>
+
+          <div className="chat-header-divider" />
+
+          {/* Unified Chapter Dropdown */}
+          <div className="chapter-dropdown-wrapper" ref={chapterDropdownRef}>
+            <button
+              type="button"
+              className={`chapter-dropdown-btn ${showChapterDropdown ? 'active' : ''}`}
+              onClick={() => setShowChapterDropdown(!showChapterDropdown)}
+              title="Switch chapter or session actions"
+              aria-expanded={showChapterDropdown}
+            >
+              <BookOpen size={14} className="chapter-dropdown-icon" />
+              <span className="chapter-dropdown-title">
+                {currentSession?.title || 'Chapter 1'}
+              </span>
+              <ChevronDown size={13} className={`chapter-dropdown-arrow ${showChapterDropdown ? 'open' : ''}`} />
+            </button>
+
+            {showChapterDropdown && (
+              <div className="chapter-dropdown-menu">
+                <div className="chapter-dropdown-header">
+                  <span className="chapter-menu-heading">Chapters</span>
+                  <button
+                    type="button"
+                    className="btn-chapter-add"
+                    onClick={() => {
+                      setShowChapterDropdown(false)
+                      onNewSession()
+                    }}
+                    title="Start a new chapter"
+                  >
+                    <Plus size={12} />
+                    <span>New</span>
+                  </button>
+                </div>
+
+                <div className="chapter-dropdown-list">
+                  {characterSessions.map((sess, idx) => {
+                    const isActive = sess.id === activeSessionId
+                    return (
+                      <button
+                        key={sess.id}
+                        type="button"
+                        className={`chapter-dropdown-item ${isActive ? 'active' : ''}`}
+                        onClick={() => {
+                          setShowChapterDropdown(false)
+                          onSelectSession(sess.id)
+                        }}
+                      >
+                        <span className="chapter-item-name">{sess.title || `Chapter ${idx + 1}`}</span>
+                        {isActive && <Check size={13} className="chapter-item-check" />}
+                      </button>
+                    )
+                  })}
+                </div>
+
+                <div className="chapter-dropdown-divider" />
+
+                <div className="chapter-dropdown-actions">
+                  {character.greeting && onRestoreGreeting && (
+                    <button
+                      type="button"
+                      className="chapter-action-item"
+                      onClick={() => {
+                        setShowChapterDropdown(false)
+                        onRestoreGreeting()
+                      }}
+                    >
+                      <RotateCcw size={13} />
+                      <span>Restore Greeting</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    className="chapter-action-item"
+                    onClick={() => {
+                      setShowChapterDropdown(false)
+                      onExportChat?.()
+                    }}
+                  >
+                    <Download size={13} />
+                    <span>Export Transcript (.md)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="chapter-action-item"
+                    onClick={() => {
+                      setShowChapterDropdown(false)
+                      onClearSession?.()
+                    }}
+                  >
+                    <Trash2 size={13} />
+                    <span>Clear Turn History</span>
+                  </button>
+
+                  {characterSessions.length > 1 && (
+                    <button
+                      type="button"
+                      className="chapter-action-item danger"
+                      onClick={() => {
+                        setShowChapterDropdown(false)
+                        onDeleteSession?.(activeSessionId)
+                      }}
+                    >
+                      <Trash2 size={13} />
+                      <span>Delete Chapter</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
-        <div className="chat-header-actions">
+        {/* Right Action Group: Edit Character & Toggle Inspector */}
+        <div className="chat-header-actions-group">
           <button
             type="button"
             className="btn-secondary btn-sm"
-            onClick={onNewSession}
-            title="Start a new chat session with this character"
-          >
-            <MessageSquarePlus size={14} />
-            <span>New Chat</span>
-          </button>
-
-          <button
-            type="button"
-            className="btn-secondary btn-sm"
-            onClick={onClearSession}
-            title="Clear all messages in the current chat session"
-          >
-            <RotateCcw size={14} />
-            <span>Clear Chat</span>
-          </button>
-
-          <button
-            className="btn-nav-icon"
-            onClick={onExportChat}
-            title="Export chat transcript as Markdown"
-            aria-label="Export chat"
-          >
-            <Download size={16} />
-          </button>
-
-          <button
-            className="btn-nav-icon"
             onClick={onEditCharacter}
-            title="Edit character profile & prompt"
-            aria-label="Edit character"
+            title="Edit character profile in Character Studio"
           >
-            <Edit size={16} />
+            <Edit3 size={13} />
+            <span>Edit</span>
           </button>
 
-          {characterSessions.length > 1 && (
-            <button
-              className="btn-nav-icon"
-              onClick={() => onDeleteSession(activeSessionId)}
-              title="Delete current session"
-              aria-label="Delete session"
-            >
-              <Trash2 size={16} className="icon-danger" />
-            </button>
-          )}
+          <button
+            type="button"
+            className={`btn-inspector-toggle ${inspectorOpen ? 'active' : ''}`}
+            onClick={onToggleInspector}
+            title={inspectorOpen ? 'Close Inspector (Ctrl+I)' : 'Open Inspector (Ctrl+I)'}
+            aria-label="Toggle Inspector"
+          >
+            <SlidersHorizontal size={14} />
+            <span>Inspector</span>
+          </button>
         </div>
       </div>
 
-      {/* Session Pills Bar */}
-      {characterSessions.length > 1 && (
-        <div className="session-bar">
-          <span className="session-bar-label">
-            <Layers size={12} /> Sessions:
-          </span>
-          {characterSessions.map((sess, idx) => (
-            <button
-              key={sess.id}
-              className={`session-tab ${sess.id === activeSessionId ? 'active' : ''}`}
-              onClick={() => onSelectSession(sess.id)}
-            >
-              {sess.title || `Story ${idx + 1}`}
-            </button>
-          ))}
-        </div>
-      )}
-
       {/* Messages Scroll Container */}
-      <div className="messages-container" ref={containerRef} onScroll={handleScroll}>
-        {/* Scenario Banner */}
-        {character.scenario && (
-          <div className="scenario-banner">
-            <div className="scenario-title">
-              <Sparkles size={14} />
-              <span>Current Scenario & Setting</span>
+      <div className="messages-container has-floating-dock" ref={containerRef} onScroll={handleScroll}>
+        <div className="messages-stream">
+          {/* Message Thread */}
+          {messages.length > 0 ? (
+            messages.map((msg, index) => (
+              <MessageItem
+                key={msg.id || index}
+                message={msg}
+                character={character}
+                userPersona={userPersona}
+                isLastAssistant={index === lastAssistantIndex && !isStreaming}
+                isStreaming={isStreaming && index === messages.length - 1 && msg.role === 'assistant'}
+                onRegenerate={onRegenerate}
+                onContinue={onContinueGeneration}
+                onSelectSwipe={onSelectSwipe}
+                onDeleteSwipe={onDeleteSwipe}
+                onEditMessage={onEditMessage}
+                onDeleteMessage={onDeleteMessage}
+              />
+            ))
+          ) : (
+            <div className="empty-chat-state">
+              <div className="empty-chat-icon">
+                <Sparkles size={32} />
+              </div>
+              <h3>Chat Session Cleared</h3>
+              <p className="empty-chat-description">
+                All messages in this session have been cleared. Type below to start fresh, or restore {character.name}&apos;s opening greeting.
+              </p>
+              {character.greeting && onRestoreGreeting && (
+                <button
+                  type="button"
+                  className="btn-secondary btn-restore-greeting"
+                  onClick={onRestoreGreeting}
+                >
+                  <RotateCcw size={14} />
+                  <span>Restore Opening Greeting</span>
+                </button>
+              )}
             </div>
-            <div className="scenario-text">{character.scenario}</div>
-          </div>
-        )}
+          )}
 
-        {/* Message Thread */}
-        {messages.length > 0 ? (
-          messages.map((msg, index) => (
-            <MessageItem
-              key={msg.id || index}
-              message={msg}
-              character={character}
-              userPersona={userPersona}
-              isLastAssistant={index === lastAssistantIndex && !isStreaming}
-              isStreaming={isStreaming && index === messages.length - 1 && msg.role === 'assistant'}
-              onRegenerate={onRegenerate}
-              onContinue={onContinueGeneration}
-              onSelectSwipe={onSelectSwipe}
-              onDeleteSwipe={onDeleteSwipe}
-              onEditMessage={onEditMessage}
-              onDeleteMessage={onDeleteMessage}
-            />
-          ))
-        ) : (
-          <div className="empty-chat-state">
-            <div className="empty-chat-icon">
-              <Sparkles size={32} />
-            </div>
-            <h3>Chat Session Cleared</h3>
-            <p className="empty-chat-description">
-              All messages in this session have been cleared. Type below to start fresh, or restore {character.name}&apos;s opening greeting.
-            </p>
-            {character.greeting && onRestoreGreeting && (
-              <button
-                type="button"
-                className="btn-secondary btn-restore-greeting"
-                onClick={onRestoreGreeting}
-              >
-                <RotateCcw size={14} />
-                <span>Restore Opening Greeting</span>
-              </button>
-            )}
-          </div>
-        )}
-
-        <div ref={messagesEndRef} />
+          <div ref={messagesEndRef} />
+        </div>
 
         {/* Floating Jump to Latest Button */}
         {isScrolledUp && (
@@ -258,33 +335,20 @@ export function ChatArea({
         )}
       </div>
 
-      {/* Input Box */}
-      <ChatInput
-        input={input}
-        setInput={setInput}
-        attachedImage={attachedImage}
-        setAttachedImage={setAttachedImage}
-        hasVisionSupport={hasVisionSupport}
-        onSend={onSendMessage}
-        onStop={onStopGeneration}
-        onContinue={onContinueGeneration}
-        isStreaming={isStreaming}
-        streamingStatus={streamingStatus}
-        hasMessages={messages.length > 0}
-      />
-
-      {/* Memory & Context Token Overview Bar */}
-      <TokenOverviewBar
-        brain={brain}
-        character={character}
-        lorebook={lorebook}
-        messages={messages}
-        settings={settings}
-        userPersona={userPersona}
-        onOpenBrain={onOpenBrain}
-        onOpenLorebook={onOpenLorebook}
-        promptPipeline={promptPipeline}
-      />
+      {/* Floating Omni-Dock (Pure, Streamlined Input Island) */}
+      <div className="chat-floating-dock-wrap">
+        <ChatInput
+          input={input}
+          setInput={setInput}
+          attachedImage={attachedImage}
+          setAttachedImage={setAttachedImage}
+          hasVisionSupport={hasVisionSupport}
+          onSend={onSendMessage}
+          onStop={onStopGeneration}
+          isStreaming={isStreaming}
+          streamingStatus={streamingStatus}
+        />
+      </div>
     </main>
   )
 }

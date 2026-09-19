@@ -2,7 +2,6 @@ import React, { useRef, useEffect, useState } from 'react'
 import {
   Send,
   Square,
-  Play,
   Sparkles,
   Brain,
   Cpu,
@@ -10,7 +9,6 @@ import {
   Loader2,
   Image as ImageIcon,
   X,
-  Eye,
 } from 'lucide-react'
 
 export function ChatInput({
@@ -21,10 +19,8 @@ export function ChatInput({
   hasVisionSupport,
   onSend,
   onStop,
-  onContinue,
   isStreaming,
   streamingStatus,
-  hasMessages,
 }) {
   const textareaRef = useRef(null)
   const fileInputRef = useRef(null)
@@ -254,18 +250,6 @@ export function ChatInput({
             <ImageIcon size={16} />
           </button>
 
-          {hasMessages && !isStreaming && (
-            <button
-              className="btn-secondary"
-              onClick={onContinue}
-              title="Prompt character to continue their narrative"
-              style={{ padding: '8px 12px', fontSize: '0.8rem' }}
-            >
-              <Play size={13} fill="currentColor" />
-              <span>Continue</span>
-            </button>
-          )}
-
           {isStreaming ? (
             <button className="btn-stop" onClick={onStop} title="Stop generation">
               <Square size={16} fill="currentColor" />
@@ -280,23 +264,6 @@ export function ChatInput({
               <Send size={16} />
             </button>
           )}
-        </div>
-      </div>
-
-      <div className="input-hints-row">
-        <div className="hint-tags">
-          <span>*actions & expressions*</span>
-          <span>&quot;spoken words&quot;</span>
-          <span>(inner thoughts)</span>
-          {hasVisionSupport && (
-            <span className="hint-tag-vision" title="This model comprehends image uploads">
-              <Eye size={11} /> Vision Model
-            </span>
-          )}
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <Sparkles size={11} style={{ color: 'var(--primary-hover)' }} />
-          <span>LM Studio Streaming Active</span>
         </div>
       </div>
     </div>

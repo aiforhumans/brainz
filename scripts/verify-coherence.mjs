@@ -764,4 +764,31 @@ await check('Character Studio alternate greetings are preserved in character per
   assert.equal(found.alternateGreetings[1].text, 'The air smells of ozone as she lowers her staff.')
 })
 
+await check('Workspace layout state persists sidebar and inspector preferences', () => {
+  const store = new Map()
+  globalThis.localStorage = {
+    getItem: k => store.get(k) ?? null,
+    setItem: (k, v) => store.set(k, v),
+    removeItem: k => store.delete(k),
+  }
+
+  // Default state is false
+  assert.equal(storageService.getSidebarCollapsed(), false)
+  assert.equal(storageService.getInspectorOpen(), false)
+
+  // Save collapsed and open
+  storageService.saveSidebarCollapsed(true)
+  storageService.saveInspectorOpen(true)
+
+  assert.equal(storageService.getSidebarCollapsed(), true)
+  assert.equal(storageService.getInspectorOpen(), true)
+
+  // Toggle back
+  storageService.saveSidebarCollapsed(false)
+  storageService.saveInspectorOpen(false)
+
+  assert.equal(storageService.getSidebarCollapsed(), false)
+  assert.equal(storageService.getInspectorOpen(), false)
+})
+
 console.log(`\n${passed} coherence checks passed.`)

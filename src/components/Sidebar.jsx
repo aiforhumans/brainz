@@ -5,7 +5,6 @@ import {
   Upload,
   RotateCcw,
   Flame,
-  Download,
 } from 'lucide-react'
 import { AvatarImage } from './AvatarImage'
 
@@ -15,7 +14,6 @@ export function Sidebar({
   onSelectCharacter,
   onCreateCharacter,
   onImportCharacter,
-  onExportCharacter,
   onResetDefaults,
   collapsed,
 }) {
@@ -64,18 +62,6 @@ export function Sidebar({
         <div className="sidebar-title-row">
           <span className="sidebar-title">Characters</span>
           <div className="sidebar-title-actions">
-            <label
-              className="btn-nav-icon btn-nav-icon--sm"
-              title="Import Character JSON"
-            >
-              <Upload size={14} />
-              <input
-                type="file"
-                accept=".json"
-                className="visually-hidden"
-                onChange={handleFileUpload}
-              />
-            </label>
             <button
               className="btn-nav-icon btn-nav-icon--sm"
               onClick={onResetDefaults}
@@ -138,6 +124,11 @@ export function Sidebar({
                   />
                 </div>
 
+                {/* Collapsed mini-dock hover tooltip */}
+                <div className="sidebar-avatar-tooltip">
+                  {char.name} {char.category ? `• ${char.category}` : ''}
+                </div>
+
                 <div className="character-meta">
                   <div className="character-name-row">
                     <div className="character-name">{char.name}</div>
@@ -148,22 +139,11 @@ export function Sidebar({
                     )}
                   </div>
                   <div className="character-tagline">{char.tagline || 'Roleplay companion'}</div>
-                  <div className="character-card-footer">
-                    {char.category ? (
+                  {char.category && (
+                    <div className="character-card-footer">
                       <span className="character-category-tag">{char.category}</span>
-                    ) : <span />}
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onExportCharacter?.(char)
-                      }}
-                      title={`Export ${char.name} card`}
-                      className="btn-export-card"
-                    >
-                      <Download size={11} />
-                    </button>
-                  </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )
@@ -175,12 +155,27 @@ export function Sidebar({
         )}
       </div>
 
-      {/* Sidebar Footer */}
+      {/* Sidebar Footer with Dual Actions */}
       <div className="sidebar-footer">
-        <button className="btn-primary sidebar-create-btn" onClick={onCreateCharacter}>
-          <Plus size={16} />
-          <span>New Character</span>
-        </button>
+        <div className="sidebar-footer-actions">
+          <button className="btn-primary sidebar-create-btn" onClick={onCreateCharacter}>
+            <Plus size={15} />
+            <span>New Character</span>
+          </button>
+          <label
+            className="btn-secondary sidebar-import-btn"
+            title="Import Character JSON card"
+          >
+            <Upload size={14} />
+            <span>Import</span>
+            <input
+              type="file"
+              accept=".json"
+              className="visually-hidden"
+              onChange={handleFileUpload}
+            />
+          </label>
+        </div>
       </div>
     </aside>
   )

@@ -680,4 +680,38 @@ export const storageService = {
     a.click()
     URL.revokeObjectURL(url)
   },
+
+  // Layout states
+  getSidebarCollapsed() {
+    try {
+      return localStorage.getItem('loreforge_sidebar_collapsed_v1') === 'true'
+    } catch {
+      return false
+    }
+  },
+
+  saveSidebarCollapsed(collapsed) {
+    try {
+      localStorage.setItem('loreforge_sidebar_collapsed_v1', String(Boolean(collapsed)))
+    } catch (e) {
+      console.warn('Failed to save sidebar collapsed state:', e)
+    }
+  },
+
+  getInspectorOpen() {
+    try {
+      return localStorage.getItem('loreforge_inspector_open_v1') === 'true'
+    } catch {
+      return false
+    }
+  },
+
+  saveInspectorOpen(open) {
+    try {
+      localStorage.setItem('loreforge_inspector_open_v1', String(Boolean(open)))
+    } catch (e) {
+      console.warn('Failed to save inspector open state:', e)
+    }
+  },
 }
+

@@ -14,18 +14,19 @@ All React JSX components that render the LoreForge UI. Each file owns one named 
 | File | Component | Role |
 |---|---|---|
 | `App.jsx` (parent) | `App` | Owns application state and inference scheduling; not in this folder |
-| `Navbar.jsx` | `Navbar` | Top bar: brand, model selector, health badge, connection latency |
-| `Sidebar.jsx` | `Sidebar` | Character list, NSFW filter toggle, search, session counts |
-| `ChatArea.jsx` | `ChatArea` | Chat thread container, session tab strip |
-| `ChatInput.jsx` | `ChatInput` | Message textarea, image attachment, streaming status HUD, continue button |
+| `Navbar.jsx` | `Navbar` | Top system bar: brand, model selector & VRAM lifecycle, health badge & latency, persona, settings |
+| `Sidebar.jsx` | `Sidebar` | Character list, search, category/NSFW filter, dual footer (New Character + Import JSON) |
+| `ChatArea.jsx` | `ChatArea` | Chat thread container, unified Chapter Dropdown, floating input dock |
+| `ChatInput.jsx` | `ChatInput` | Streamlined message textarea, image attachment, send/stop, streaming status HUD |
 | `MessageItem.jsx` | `MessageItem` | Single message bubble, thought-process accordion, generation telemetry pill |
 | `CharacterModal.jsx` | `CharacterModal` | Character CRUD and drafts through App callbacks; persona-aware generation, whole-card rewrite, field polish, import/export JSON |
 | `SettingsModal.jsx` | `SettingsModal` | Generation parameters, sampler controls, server URL, model VRAM lifecycle |
 | `UserPersonaModal.jsx` | `UserPersonaModal` | User roleplay profile (name, title, avatar, bio) |
 | `LorebookModal.jsx` | `LorebookModal` | Lorebook entries: keyword triggers, content, enable/disable |
 | `BrainModal.jsx` | `BrainModal` | Per-character memory review, manual profile, evidence/status display, import/export, learning controls and full prompt preview |
-| `TokenOverviewBar.jsx` | `TokenOverviewBar` | Main window bottom footer: real-time memory tokens, lore tokens, chat history, context utilization progress bar, and expandable diagnostics drawer |
+| `TokenOverviewBar.jsx` | `TokenOverviewBar` | Diagnostic token meter: real-time memory tokens, lore tokens, chat history, context utilization progress bar, and expandable diagnostics drawer |
 | `AvatarImage.jsx` | `AvatarImage` | Asynchronous avatar renderer supporting IndexedDB keys, remote URLs, error recovery, and initials/user fallback |
+| `InspectorPanel.jsx` | `InspectorPanel` | Collapsible right slide-over inspector panel: Overview (Identity, Scene State, Scenario), Mind (Memories & Cadence), Lore (Turn triggers), and Context (Token Budget & Diagnostics) |
 
 ## Local Contracts
 

@@ -1,7 +1,6 @@
 import {
   Sparkles,
   Cpu,
-  BookOpen,
   User,
   Settings as SettingsIcon,
   RefreshCw,
@@ -11,7 +10,6 @@ import {
   Zap,
   PowerOff,
   Loader2,
-  Brain,
 } from 'lucide-react'
 
 export function Navbar({
@@ -22,11 +20,6 @@ export function Navbar({
   onSelectModel,
   onOpenSettings,
   onOpenPersona,
-  onOpenLorebook,
-  onOpenBrain,
-  brainMemoriesCount = 0,
-  isBrainSynthesizing = false,
-  brainEnabled = true,
   userPersona,
   sidebarCollapsed,
   onToggleSidebar,
@@ -155,32 +148,6 @@ export function Navbar({
             className={`connection-refresh-icon ${connectionStatus.isChecking ? 'checking' : ''}`}
           />
         </div>
-
-        {/* Neural Brain / Memory Data Bank Trigger */}
-        <button
-          className={`btn-nav-brain ${isBrainSynthesizing ? 'synthesizing' : ''} ${!brainEnabled ? 'disabled' : ''}`}
-          onClick={onOpenBrain}
-          title={
-            isBrainSynthesizing
-              ? 'Brain is currently analyzing chats...'
-              : `AI Brain Data Bank (${brainMemoriesCount} memories stored)`
-          }
-          aria-label="Open Brain Data Bank"
-        >
-          <Brain size={16} className="brain-nav-icon" />
-          <span className="brain-nav-label">Brain</span>
-          <span className="brain-nav-badge">{brainMemoriesCount}</span>
-        </button>
-
-        {/* Lorebook Trigger */}
-        <button
-          className="btn-nav-icon"
-          onClick={onOpenLorebook}
-          title="World Lore & Lorebook Memory"
-          aria-label="Open Lorebook"
-        >
-          <BookOpen size={18} />
-        </button>
 
         {/* User Persona Trigger */}
         <button

@@ -1,5 +1,83 @@
 # Change log
 
+## 2026-09-19 — Workspace Inspector Mind, Lore & Context Data Population
+
+- **Live Token Telemetry in Context Tab**:
+  - Fixed property mismatch where `InspectorPanel.jsx` looked for non-existent `promptPipeline.metrics` instead of `promptPipeline.observability`, causing all context token numbers to report 0.
+  - Implemented multi-segment visual token bar (System, Memories, Lore, Chat Turns, Free Headroom) with proportional segment widths and color-coded legend.
+  - Added live telemetry boxes displaying System Directives, Active Memories, Lorebook Context, and Chat Turns with exact token counts, plus Context Window limit and Generation Reserve specifications.
+- **Enriched Mind Tab with Partner Model & Learning Cadence**:
+  - Integrated the Conversation Partner Model (Mindprint) displaying User Persona name, bio/summary, dialogue preferences, personality traits, and likes.
+  - Added an Autonomous Learning progress bar tracking turns until next background synthesis (`repliesSinceLearning / 8` cadence).
+  - Enhanced Subconscious Memory items with `In Prompt` context inclusion badges and confidence ratings, plus past Chapter Summaries when available.
+- **Comprehensive Lore Tab with Encyclopedia & Active Status**:
+  - Replaced raw keyword pills with a full World Lorebook Library list, showing each entry's title, keyword triggers, content snippet, and active/standby status.
+  - Connected `activeLore` directly to the compiled prompt pipeline (`promptPipeline.selectedLore`), displaying triggered scene lore with keyword badges.
+- **Verification**:
+  - `npm run lint` passed with zero errors.
+  - `node scripts/verify-coherence.mjs` passed 49/49 coherence checks.
+  - Browser subagent smoke test confirmed live data populated across Mind, Lore, and Context tabs.
+
+## 2026-09-19 — Ultrawide & Display Scaling Layout Fix
+
+- **Root Cause Resolution for Scaling & Centering Disconnect**:
+  - Identified missing `.chat-area` flexbox container rules in `src/index.css`, which previously caused `<main className="chat-area">` to default to `flex-grow: 0; display: block;` inside `.main-content`.
+  - On wide and ultrawide screens (e.g. 3440x1440/1305), the unconstrained `.chat-area` previously clamped to content width (~960px on the left), pushing the Inspector inward and allowing the floating input dock to center relative to `.main-content` across the entire viewport, creating a severe horizontal misalignment.
+- **Cohesive Centering & Scaling Across All Resolutions**:
+  - Added `.chat-area` flexbox styling (`flex: 1; display: flex; flex-direction: column; position: relative; overflow: hidden; min-width: 0; background: var(--bg-main);`).
+  - Added `align-items: center; width: 100%;` to `.messages-container` so `.messages-stream` centers precisely within the full chat area.
+  - Aligned `.messages-stream` and `.chat-floating-dock-wrap` on the identical vertical axis and maximum width (`920px`).
+  - Anchored `.inspector-panel` cleanly to the right edge of the screen, with full flexbox distribution of the chat canvas between sidebar and inspector.
+  - Adjusted `.jump-to-bottom-btn` sticky offset (`bottom: 96px`) to float neatly above the omni-dock.
+  - Verified across both 3440x1305 ultrawide and 1920x1080 standard viewports.
+
+## 2026-09-19 — UI De-Duplication and Information Architecture Cleanup
+
+- **Clean Separation of Concerns across Panels**:
+  - **Top Navbar (Pure System Bar)**: Removed duplicate Brain and Lorebook buttons. Focused strictly on Model selection, VRAM load/eject, LM Studio connection latency, User Persona, and Global Settings.
+  - **Bento Inspector (Context Home)**: Dedicated as the single source of truth for character and narrative inspectables. Overview tab now includes the full Scenario & World Setting card with macro resolution (`{{user}}`, `{{char}}`), alongside Scene State and Character Studio shortcut.
+- **Unified Chapter Dropdown (`📖 Chapter 1 ▾`)**:
+  - Replaced horizontal chapter pills and detached `...` menu with a unified dropdown selector in the chat header.
+  - Groups chapter switching, `+ New Chapter`, Restore Greeting, Export Transcript (.md), Clear Turn History, and Delete Chapter in one cohesive menu.
+- **Pure Input Focus on Floating Omni-Dock**:
+  - Removed duplicate `Continue` button next to Send (Continue lives exclusively on the latest assistant message bubble toolbar next to Steer, Reroll, Edit, Copy, Delete).
+  - Removed bottom formatting hint tags and streaming indicator row; integrated roleplay syntax guide directly into the textarea placeholder.
+  - Decoupled heavy `TokenOverviewBar` from the floating dock, slimming it down to a sleek, floating glass island with reduced scroll padding (`padding-bottom: 110px`).
+- **Clean Sidebar Card Design & Dual Footer**:
+  - Removed individual download/export buttons from character cards to eliminate visual clutter and accidental clicks (Export JSON remains easily accessible inside Character Studio).
+  - Added clean dual footer actions: `+ New Character` (primary) and `Import JSON` (secondary with file upload).
+- **Clean Chat Scroll Canvas**:
+  - Removed the persistent `session-scenario-banner` above the chat messages so conversation threads start immediately with character greetings and roleplay turns.
+- **Strict Verification**:
+  - `npm run lint` passed with zero errors.
+  - `node scripts/verify-coherence.mjs` passed 49/49 coherence checks.
+
+## 2026-09-19 — UI Layout Modernization (inspired by ui-layouts): Unified Context Header, Bento Inspector, Mini Icon Dock & Floating Omni-Dock
+
+- **Integrated Context Header with Inline Chapter Strip & Overflow Menu**:
+  - Replaced the stacked character header and 42px separate session bar with a unified 62px header (`.chat-header-unified`), regaining ~45px of vertical message scroll space.
+  - Interactive chapter carousel pills (`.chat-header-chapters`, `.chapter-pill`) allow switching and adding chapters (`+ New`) directly inside the header.
+  - Tidy `...` overflow menu with outside-click dismissal houses "Restore Greeting", "Export Transcript (.md)", "Clear Turn History", and "Delete Chapter".
+- **Collapsible Dual-State Sidebar (Expanded 280px / Collapsed 68px Mini Icon Dock)**:
+  - Collapsed state transforms into a sleek 68px vertical icon dock (`.sidebar.collapsed`) displaying centered circular character avatars with glowing active indicators.
+  - Hover tooltips (`.sidebar-avatar-tooltip`) display character name, category, and 18+ badge when collapsed.
+  - Toggle via top navbar button or keyboard shortcut (`Ctrl+B`), with state persisted in LocalStorage (`loreforge_sidebar_collapsed_v1`).
+- **Tabbed Bento Inspector (330px Collapsible Slide-Over Panel)**:
+  - Collapsible side panel (`.inspector-panel`) accessible via header button or `Ctrl+I` / `Ctrl+/` shortcut.
+  - 4 tabs:
+    - **Overview**: Character summary card, active Scene State (location, participants, mood, time of day), quick action to open Character Studio.
+    - **Mind**: Subconscious brain state, established & tentative memories count, auto-learn reply cadence tracker, and quick link to Memory Data Bank.
+    - **Lore**: Active turn-triggered lorebook entries matched against recent conversation text with keyword highlight badges, and link to Lorebook manager.
+    - **Context**: Real-time token budget breakdown (System, Memory, Lore, History, Generation Reserve, Headroom) with dynamic utilization bar.
+- **Floating Omni-Dock & Telemetry Strip**:
+  - Replaced flat bottom chat input with a floating glass omni-dock (`.chat-floating-dock-wrap`) hovering gracefully over the chat canvas.
+  - Embedded telemetry pill button displaying live context tokens and load status that toggles the inspector or token drawer.
+  - Added bottom padding (`padding-bottom: 160px`) to messages container ensuring message text and "Jump to latest" pill are never obscured.
+- **Zero Inline Styles & Strict Verification**:
+  - All styling added in `src/index.css` following the obsidian glassmorphism design system.
+  - Added layout state persistence tests in `scripts/verify-coherence.mjs` (49/49 coherence checks passing).
+  - `npm run lint` passed with zero errors.
+
 ## 2026-09-19 — Character Studio redesign: obsidian 2-column layout, drag-and-drop avatar, live card & token preview, blueprint generator, and alternate greetings deck
 
 - **Obsidian 2-column Character Studio layout**:

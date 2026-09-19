@@ -7,6 +7,7 @@ import { SettingsModal } from './components/SettingsModal'
 import { UserPersonaModal } from './components/UserPersonaModal'
 import { LorebookModal } from './components/LorebookModal'
 import { BrainModal } from './components/BrainModal'
+import { InspectorPanel } from './components/InspectorPanel'
 import { storageService, imageStorage } from './services/storageService'
 import { createLMStudioClient } from './services/lmStudioClient'
 import { DEFAULT_CHARACTERS } from './services/defaultCharacters'
@@ -39,10 +40,42 @@ export default function App() {
   const [attachedImage, setAttachedImage] = useState(null)
   const [isStreaming, setIsStreaming] = useState(false)
   const [streamingStatus, setStreamingStatus] = useState(null)
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => storageService.getSidebarCollapsed())
+  const [inspectorOpen, setInspectorOpen] = useState(() => storageService.getInspectorOpen())
   const [isModelLoading, setIsModelLoading] = useState(false)
   const abortControllerRef = useRef(null)
   const currentStreamIdRef = useRef(0)
+
+  const handleToggleSidebar = useCallback(() => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev
+      storageService.saveSidebarCollapsed(next)
+      return next
+    })
+  }, [])
+
+  const handleToggleInspector = useCallback(() => {
+    setInspectorOpen((prev) => {
+      const next = !prev
+      storageService.saveInspectorOpen(next)
+      return next
+    })
+  }, [])
+
+  // Global layout keyboard shortcuts: Ctrl+B (sidebar) and Ctrl+I / Ctrl+/ (inspector)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+        e.preventDefault()
+        handleToggleSidebar()
+      } else if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'i' || e.key === '/')) {
+        e.preventDefault()
+        handleToggleInspector()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [handleToggleSidebar, handleToggleInspector])
 
   // Modals
   const [characterModalState, setCharacterModalState] = useState({ isOpen: false, character: null })
@@ -1076,14 +1109,9 @@ export default function App() {
         isModelLoading={isModelLoading}
         onOpenSettings={() => setSettingsModalOpen(true)}
         onOpenPersona={() => setPersonaModalOpen(true)}
-        onOpenLorebook={() => setLorebookModalOpen(true)}
-        onOpenBrain={() => setBrainModalOpen(true)}
-        brainMemoriesCount={activeBrain?.memories?.length || 0}
-        isBrainSynthesizing={isSynthesizingBrain}
-        brainEnabled={activeBrain?.enabled !== false}
         userPersona={userPersona}
         sidebarCollapsed={sidebarCollapsed}
-        onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
+        onToggleSidebar={handleToggleSidebar}
       />
 
       {/* Main App Layout */}
@@ -1127,12 +1155,26 @@ export default function App() {
           isStreaming={isStreaming}
           streamingStatus={streamingStatus}
           userPersona={userPersona}
+          inspectorOpen={inspectorOpen}
+          onToggleInspector={handleToggleInspector}
+        />
+
+        <InspectorPanel
+          isOpen={inspectorOpen}
+          onClose={() => {
+            setInspectorOpen(false)
+            storageService.saveInspectorOpen(false)
+          }}
+          character={activeCharacter}
+          session={currentSession}
           brain={activeBrain}
           lorebook={lorebook}
-          settings={settings}
+          recentMessages={currentMessages}
+          promptPipeline={promptPipeline}
+          userPersona={userPersona}
+          onOpenCharacterStudio={() => setCharacterModalState({ isOpen: true, character: activeCharacter })}
           onOpenBrain={() => setBrainModalOpen(true)}
           onOpenLorebook={() => setLorebookModalOpen(true)}
-          promptPipeline={promptPipeline}
         />
       </div>
 
